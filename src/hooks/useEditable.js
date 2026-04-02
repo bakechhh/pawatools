@@ -1,15 +1,25 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { useState, useMemo, useCallback } from "react";
 
-export function useEditable(savedData) {
+/**
+ * @param {object} savedData - { [id]: { col: val, ... }, ... }
+ * @param {string} scope - 切り替えごとにリセットするためのスコープキー（例: "1_hp"）
+ */
+export function useEditable(savedData, scope = "") {
   const [edits, setEdits] = useState({});
-  const savedRef = useRef(savedData);
-  useEffect(() => { savedRef.current = savedData; }, [savedData]);
+  const [lastScope, setLastScope] = useState(scope);
+
+  // スコープが変わったらeditsを自動クリア
+  if (scope !== lastScope) {
+    setEdits({});
+    setLastScope(scope);
+  }
 
   const edit = useCallback((id, col, newVal) => {
-    const orig = savedRef.current?.[id]?.[col] ?? null;
     setEdits(prev => {
       const next = { ...prev };
       const key = `${id}::${col}`;
+      // savedDataから現在の元値を直接取得
+      const orig = savedData?.[id]?.[col] ?? null;
       const same = newVal === orig
         || (newVal == null && orig == null)
         || (newVal === 0 && (orig === 0 || orig == null))
@@ -21,13 +31,13 @@ export function useEditable(savedData) {
       }
       return next;
     });
-  }, []);
+  }, [savedData]);
 
   const getVal = useCallback((id, col) => {
     const key = `${id}::${col}`;
     if (key in edits) return edits[key];
-    return savedRef.current?.[id]?.[col] ?? null;
-  }, [edits]);
+    return savedData?.[id]?.[col] ?? null;
+  }, [edits, savedData]);
 
   const isDirty = useCallback((id) => {
     const prefix = `${id}::`;
