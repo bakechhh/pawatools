@@ -28,17 +28,17 @@ function CopyPanel({ cap, getVal, edit, saved, onFlash }) {
       onFlash("範囲が不正です"); return;
     }
     const srcData = saved[src] || {};
-    const cols = DATA_COLS.map(c => c.key);
+    const expCols = ["exp_kinryoku", "exp_binsoku", "exp_gijutsu", "exp_chiryoku", "exp_seishin"];
     let count = 0;
     for (let v = from; v <= to; v++) {
       if (v === src) continue;
-      cols.forEach(col => {
+      expCols.forEach(col => {
         const val = getVal(src, col);
         if (val != null) { edit(v, col, val); }
       });
       count++;
     }
-    onFlash(`✓ ${src}行目のデータを ${from}~${to} にコピー (${count}行)`);
+    onFlash(`✓ ${src}行目の経験点を ${from}~${to} にコピー (${count}行)`);
   }
 
   const numInput = { width: 56, height: 30, textAlign: "center", fontSize: 13, fontWeight: 600, borderRadius: 5, border: "1px solid #d5d0c0", background: "#fff", color: "#333" };
