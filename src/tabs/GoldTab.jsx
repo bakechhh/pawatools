@@ -13,11 +13,10 @@ export default function GoldTab() {
   const [saving, setSaving] = useState({});
   const [expanded, setExpanded] = useState({});
 
-  const { edit, getVal, isDirty, dirtyIds, clearEdits, getEditsFor } = useEditable(gData, true);
+  const { edit, getVal, isDirty, dirtyIds, clearEdits, getEditsFor } = useEditable(gData, `gold_${jobId}`);
 
   useEffect(() => { GET("gold_skills", "order=name").then(r => { setItems(r); setLd(false); }); }, []);
   useEffect(() => {
-    clearEdits();
     GET("gold_skill_data", `job_id=eq.${jobId}`).then(rows => {
       const d = {}; rows.forEach(r => { d[r.gold_skill_id] = r; }); setGData(d);
     });

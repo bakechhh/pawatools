@@ -15,7 +15,7 @@ export default function SkillsTab() {
   const [saving, setSaving] = useState({});
   const [expanded, setExpanded] = useState({});
 
-  const { edit, getVal, isDirty, dirtyIds, clearEdits, getEditsFor } = useEditable(sData, true);
+  const { edit, getVal, isDirty, dirtyIds, clearEdits, getEditsFor } = useEditable(sData, `skill_${jobId}`);
 
   useEffect(() => {
     Promise.all([
@@ -25,7 +25,6 @@ export default function SkillsTab() {
   }, []);
 
   useEffect(() => {
-    clearEdits();
     GET("skill_data", `job_id=eq.${jobId}`).then(rows => {
       const d = {}; rows.forEach(r => { d[r.skill_id] = r; }); setSData(d);
     });

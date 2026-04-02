@@ -14,11 +14,10 @@ export default function SpecialTab() {
   const [saving, setSaving] = useState({});
   const [expanded, setExpanded] = useState({});
 
-  const { edit, getVal, isDirty, dirtyIds, clearEdits, getEditsFor } = useEditable(smData, true);
+  const { edit, getVal, isDirty, dirtyIds, clearEdits, getEditsFor } = useEditable(smData, `special_${jobId}`);
 
   useEffect(() => { GET("special_moves", "order=job_id,name").then(r => { setItems(r); setLd(false); }); }, []);
   useEffect(() => {
-    clearEdits();
     GET("special_move_data", `job_id=eq.${jobId}`).then(rows => {
       const d = {}; rows.forEach(r => { d[r.special_move_id] = r; }); setSmData(d);
     });

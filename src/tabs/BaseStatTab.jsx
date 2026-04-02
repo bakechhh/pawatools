@@ -13,14 +13,14 @@ export default function BaseStatTab() {
   const [saving, setSaving] = useState({});
   const [expanded, setExpanded] = useState({});
 
-  const { edit, getVal, isDirty, dirtyIds, clearEdits, getEditsFor } = useEditable(saved, true);
+  const { edit, getVal, isDirty, dirtyIds, clearEdits, getEditsFor } = useEditable(saved, `${jobId}_${statKey}`);
 
   const job = JOBS.find(j => j.id === jobId);
   const stat = STATS.find(s => s.key === statKey);
   const cap = job?.[stat?.cap] || 0;
 
   useEffect(() => {
-    setLoading(true); clearEdits(); setExpanded({});
+    setLoading(true); setExpanded({});
     GET("base_stat_costs", `job_id=eq.${jobId}&stat_type=eq.${statKey}&order=stat_value.asc`).then(rows => {
       const d = {}; rows.forEach(r => { d[r.stat_value] = r; });
       setSaved(d); setLoading(false);
