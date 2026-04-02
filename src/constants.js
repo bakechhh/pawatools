@@ -17,8 +17,8 @@ export const STATS = [
 export const DATA_COLS = [
   { key: "satei_delta", label: "査定", color: "#b8860b", bg: "#fdf8e8" },
   { key: "exp_kinryoku", label: "筋力", color: "#c0392b", bg: "#fdecea" },
-  { key: "exp_binsoku", label: "敏捷", color: "#d4880f", bg: "#fef5e7" },
-  { key: "exp_gijutsu", label: "技術", color: "#2471a3", bg: "#eaf2f8" },
+  { key: "exp_binsoku", label: "敏捷", color: "#2471a3", bg: "#eaf2f8" },
+  { key: "exp_gijutsu", label: "技術", color: "#d4880f", bg: "#fef5e7" },
   { key: "exp_chiryoku", label: "知力", color: "#7d3c98", bg: "#f4ecf7" },
   { key: "exp_seishin", label: "精神", color: "#1e8449", bg: "#e8f8f0" },
 ];
@@ -26,8 +26,8 @@ export const DATA_COLS = [
 export const SKILL_COLS = [
   { key: "satei", label: "査定", color: "#b8860b", bg: "#fdf8e8" },
   { key: "exp_kinryoku", label: "筋力", color: "#c0392b", bg: "#fdecea" },
-  { key: "exp_binsoku", label: "敏捷", color: "#d4880f", bg: "#fef5e7" },
-  { key: "exp_gijutsu", label: "技術", color: "#2471a3", bg: "#eaf2f8" },
+  { key: "exp_binsoku", label: "敏捷", color: "#2471a3", bg: "#eaf2f8" },
+  { key: "exp_gijutsu", label: "技術", color: "#d4880f", bg: "#fef5e7" },
   { key: "exp_chiryoku", label: "知力", color: "#7d3c98", bg: "#f4ecf7" },
   { key: "exp_seishin", label: "精神", color: "#1e8449", bg: "#e8f8f0" },
 ];

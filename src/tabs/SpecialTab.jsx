@@ -5,20 +5,27 @@ import { JOBS, SKILL_COLS, JC, EL } from "../constants.js";
 import { Pill, Badge, Toast, SaveBtn, SaveAllBtn, NumInput, DetailRow, TS } from "../components/UI.jsx";
 import { useEditable } from "../hooks/useEditable.js";
 
+const LEVELS = [1, 2];
+
 export default function SpecialTab() {
   const [items, setItems] = useState([]);
   const [jobF, setJobF] = useState(0);
   const [jobId, setJobId] = useState(1);
+  const [level, setLevel] = useState(1);
   const [smData, setSmData] = useState({});
   const [ld, setLd] = useState(true);
   const [toast, setToast] = useState("");
   const [saving, setSaving] = useState({});
   const [expanded, setExpanded] = useState({});
 
-  const { edit, getVal, isDirty, dirtyIds, clearEdits, getEditsFor } = useEditable(smData, `special_${jobId}`);
+  const { edit, getVal, isDirty, dirtyIds, clearEdits, getEditsFor } = useEditable(smData, `special_${jobId}_${level}`);
 
   useEffect(() => { GET("special_moves", "order=job_id,name").then(r => { setItems(r); setLd(false); }); }, []);
-  useEffect(() => { GET("special_move_data", `job_id=eq.${jobId}`).then(rows => { const d = {}; rows.forEach(r => { d[r.special_move_id] = r; }); setSmData(d); }); }, [jobId]);
+  useEffect(() => {
+    GET("special_move_data", `job_id=eq.${jobId}&level=eq.${level}`).then(rows => {
+      const d = {}; rows.forEach(r => { d[r.special_move_id] = r; }); setSmData(d);
+    });
+  }, [jobId, level]);
 
   const list = useMemo(() => jobF ? items.filter(s => s.job_id === jobF) : items, [items, jobF]);
 
@@ -27,7 +34,7 @@ export default function SpecialTab() {
     const ex = smData[sid] || {};
     const changes = getEditsFor(sid);
     const p = {
-      special_move_id: sid, job_id: jobId,
+      special_move_id: sid, job_id: jobId, level,
       satei: ex.satei ?? null, exp_kinryoku: ex.exp_kinryoku ?? 0, exp_binsoku: ex.exp_binsoku ?? 0,
       exp_gijutsu: ex.exp_gijutsu ?? 0, exp_chiryoku: ex.exp_chiryoku ?? 0, exp_seishin: ex.exp_seishin ?? 0,
       notes: ex.notes ?? null, comments: ex.comments ?? [], conditions: ex.conditions ?? [],
@@ -37,7 +44,7 @@ export default function SpecialTab() {
     if (res?.length) { setSmData(prev => ({ ...prev, [sid]: res[0] })); clearEdits(sid); flash("✓ 保存完了"); }
     else { flash("保存失敗"); }
     setSaving(prev => ({ ...prev, [sid]: false }));
-  }, [smData, jobId, getEditsFor, clearEdits]);
+  }, [smData, jobId, level, getEditsFor, clearEdits]);
 
   async function doSaveAll() { if (!dirtyIds.size) return; for (const sid of dirtyIds) await doSave(Number(sid)); flash(`✓ ${dirtyIds.size}件 一括保存`); }
   function addComment(sid, text) { const ex = smData[sid] || {}; edit(sid, "comments", [...(ex.comments || []), { text, at: new Date().toISOString() }]); }
@@ -50,6 +57,10 @@ export default function SpecialTab() {
       <div style={{ display: "flex", gap: 4, marginBottom: 6, flexWrap: "wrap" }}>
         <span style={{ fontSize: 11, color: "#888", alignSelf: "center" }}>記録:</span>
         {JOBS.map(j => <Pill key={j.id} active={jobId === j.id} onClick={() => setJobId(j.id)} color={JC[j.name]}>{j.name}</Pill>)}
+      </div>
+      <div style={{ display: "flex", gap: 4, marginBottom: 6, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 11, color: "#888", alignSelf: "center" }}>Lv:</span>
+        {LEVELS.map(lv => <Pill key={lv} active={level === lv} onClick={() => setLevel(lv)} color="#b8860b">Lv{lv}</Pill>)}
       </div>
       <div style={{ display: "flex", gap: 3, marginBottom: 8, flexWrap: "wrap" }}>
         <span style={{ fontSize: 11, color: "#888", alignSelf: "center" }}>表示:</span>
@@ -88,7 +99,7 @@ export default function SpecialTab() {
                   </td>;
                 })}
                 <td style={{ ...TS.td(false), textAlign: "center" }}>
-                  <button onClick={() => setExpanded(p => ({ ...p, [s.id]: !p[s.id] }))} style={{ width: 24, height: 24, borderRadius: 4, border: "1px solid #d5d0c0", cursor: "pointer", fontSize: 11, fontWeight: 700, background: hasDetail ? "#fef3cd" : isExp ? "#eee" : "#fff", color: hasDetail ? "#b8860b" : "#999" }}>{hasDetail ? `⚠${conds.length + comms.length}` : isExp ? "▲" : "▼"}</button>
+                  <button onClick={() => setExpanded(p => ({ ...p, [s.id]: !p[s.id] }))} style={{ width: 24, height: 24, borderRadius: 4, border: "1px solid #d5d0c0", cursor: "pointer", fontSize: 10, fontWeight: 700, background: hasDetail ? "#fef3cd" : isExp ? "#eee" : "#fff", color: hasDetail ? "#b8860b" : "#999" }}>{hasDetail ? `⚠${conds.length + comms.length}` : isExp ? "▲" : "▼"}</button>
                 </td>
                 <td style={{ ...TS.td(false), textAlign: "center" }}><SaveBtn active={dirty} saving={saving[s.id]} onClick={() => doSave(s.id)} /></td>
               </tr>,
