@@ -70,7 +70,7 @@ function CopyPanel({ cap, getVal, edit, saved, onFlash }) {
 }
 
 // 表示範囲フィルタ
-function RangeFilter({ cap, range, setRange, savedCount, onJumpToData }) {
+function RangeFilter({ cap, range, setRange, savedCount }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
       <span style={{ fontSize: 11, color: "#888" }}>表示:</span>
@@ -79,6 +79,121 @@ function RangeFilter({ cap, range, setRange, savedCount, onJumpToData }) {
       <Pill active={range === "mid"} onClick={() => setRange("mid")}>31~60</Pill>
       <Pill active={range === "high"} onClick={() => setRange("high")}>61~{cap}</Pill>
       <Pill active={range === "filled"} onClick={() => setRange("filled")}>入力済 ({savedCount})</Pill>
+    </div>
+  );
+}
+
+// 集計パネル
+function CalcPanel({ cap, savedCount, calcRange }) {
+  const [open, setOpen] = useState(false);
+  const [from, setFrom] = useState("0");
+  const [to, setTo] = useState(String(cap));
+  const [result, setResult] = useState(null);
+  const [presets, setPresets] = useState([]);
+
+  function doCalc(f, t) {
+    const ff = Number(f), tt = Number(t);
+    if (isNaN(ff) || isNaN(tt) || ff > tt) return;
+    setResult({ ...calcRange(ff, tt), from: ff, to: tt });
+  }
+
+  function addPreset() {
+    if (!result) return;
+    setPresets(p => [...p, { ...result }]);
+  }
+
+  function removePreset(i) {
+    setPresets(p => p.filter((_, idx) => idx !== i));
+  }
+
+  // プリセット同士の合算
+  const presetSum = presets.reduce((acc, p) => ({
+    satei: acc.satei + p.satei, kinryoku: acc.kinryoku + p.kinryoku, binsoku: acc.binsoku + p.binsoku,
+    gijutsu: acc.gijutsu + p.gijutsu, chiryoku: acc.chiryoku + p.chiryoku, seishin: acc.seishin + p.seishin,
+    total: acc.total + p.total,
+  }), { satei: 0, kinryoku: 0, binsoku: 0, gijutsu: 0, chiryoku: 0, seishin: 0, total: 0 });
+
+  const ni = { width: 52, height: 28, textAlign: "center", fontSize: 13, fontWeight: 600, borderRadius: 5, border: "1px solid #d5d0c0", background: "#fff", color: "#333" };
+
+  function ResultRow({ label, r, color, onRemove }) {
+    return (
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center", padding: "4px 0", borderBottom: "1px solid #eee" }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: color || "#5a4010", minWidth: 60 }}>{label}</span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: "#b8860b" }}>査定{r.satei}</span>
+        <span style={{ fontSize: 10, color: "#c0392b" }}>筋{r.kinryoku}</span>
+        <span style={{ fontSize: 10, color: "#2471a3" }}>敏{r.binsoku}</span>
+        <span style={{ fontSize: 10, color: "#d4880f" }}>技{r.gijutsu}</span>
+        <span style={{ fontSize: 10, color: "#7d3c98" }}>知{r.chiryoku}</span>
+        <span style={{ fontSize: 10, color: "#1e8449" }}>精{r.seishin}</span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: "#333" }}>計{r.total}</span>
+        {onRemove && <button onClick={onRemove} style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, border: "1px solid #ddd", background: "#fff", color: "#c0392b", cursor: "pointer" }}>✕</button>}
+      </div>
+    );
+  }
+
+  if (!open) return (
+    <div style={{ display: "flex", gap: 6, marginBottom: 6, alignItems: "center" }}>
+      <button onClick={() => { setOpen(true); doCalc("0", String(cap)); }} style={{
+        padding: "5px 12px", borderRadius: 6, border: "1px solid #d5d0c0",
+        background: "#faf8f2", color: "#8b7340", fontSize: 11, fontWeight: 600, cursor: "pointer",
+      }}>📊 集計</button>
+      {savedCount > 0 && (() => {
+        const all = calcRange(0, cap);
+        return <span style={{ fontSize: 11, color: "#888" }}>全体: 査定{all.satei} / 経験点{all.total}</span>;
+      })()}
+    </div>
+  );
+
+  return (
+    <div style={{ background: "#f8f4e8", border: "1px solid #d5c89c", borderRadius: 8, padding: 10, marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: "#5a4010" }}>📊 集計</span>
+        <button onClick={() => setOpen(false)} style={{ fontSize: 11, color: "#888", background: "none", border: "none", cursor: "pointer" }}>✕ 閉じる</button>
+      </div>
+
+      {/* 範囲指定 */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+        <input type="text" inputMode="numeric" pattern="[0-9]*" value={from} onChange={e => setFrom(e.target.value)} style={ni} />
+        <span style={{ color: "#888" }}>~</span>
+        <input type="text" inputMode="numeric" pattern="[0-9]*" value={to} onChange={e => setTo(e.target.value)} style={ni} />
+        <button onClick={() => doCalc(from, to)} style={{
+          padding: "5px 14px", borderRadius: 6, border: "none", fontWeight: 700, fontSize: 12,
+          background: "#b8860b", color: "#fff", cursor: "pointer",
+        }}>計算</button>
+        {/* プリセットボタン */}
+        <button onClick={() => { setFrom("0"); setTo(String(cap)); doCalc("0", String(cap)); }}
+          style={{ padding: "4px 8px", borderRadius: 4, border: "1px solid #d5d0c0", background: "#fff", color: "#888", fontSize: 10, cursor: "pointer" }}>全範囲</button>
+        <button onClick={() => { setFrom("0"); setTo("30"); doCalc("0", "30"); }}
+          style={{ padding: "4px 8px", borderRadius: 4, border: "1px solid #d5d0c0", background: "#fff", color: "#888", fontSize: 10, cursor: "pointer" }}>0~30</button>
+        <button onClick={() => { setFrom("31"); setTo("60"); doCalc("31", "60"); }}
+          style={{ padding: "4px 8px", borderRadius: 4, border: "1px solid #d5d0c0", background: "#fff", color: "#888", fontSize: 10, cursor: "pointer" }}>31~60</button>
+        <button onClick={() => { setFrom("61"); setTo(String(cap)); doCalc("61", String(cap)); }}
+          style={{ padding: "4px 8px", borderRadius: 4, border: "1px solid #d5d0c0", background: "#fff", color: "#888", fontSize: 10, cursor: "pointer" }}>61~{cap}</button>
+      </div>
+
+      {/* 結果 */}
+      {result && (
+        <div style={{ marginBottom: 6 }}>
+          <ResultRow label={`${result.from}~${result.to}`} r={result} />
+          <button onClick={addPreset} style={{
+            marginTop: 4, padding: "3px 10px", borderRadius: 4, border: "1px solid #d5d0c0",
+            background: "#fff", color: "#5a4010", fontSize: 10, fontWeight: 600, cursor: "pointer",
+          }}>＋ この結果をストックに追加</button>
+        </div>
+      )}
+
+      {/* ストック（複数範囲の結果を溜めて合算） */}
+      {presets.length > 0 && (
+        <div style={{ borderTop: "1px solid #e0d8c0", paddingTop: 6, marginTop: 4 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#888", marginBottom: 2 }}>ストック:</div>
+          {presets.map((p, i) => (
+            <ResultRow key={i} label={`${p.from}~${p.to}`} r={p} onRemove={() => removePreset(i)} />
+          ))}
+          {presets.length >= 2 && (
+            <ResultRow label="合算" r={presetSum} color="#27ae60" />
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -161,6 +276,23 @@ export default function BaseStatTab() {
 
   const savedCount = Object.keys(saved).length;
 
+  // 集計用（CalcPanelから使う）
+  function calcRange(from, to) {
+    const zero = { satei: 0, kinryoku: 0, binsoku: 0, gijutsu: 0, chiryoku: 0, seishin: 0 };
+    for (let v = from; v <= to; v++) {
+      const r = saved[v];
+      if (!r) continue;
+      zero.satei += r.satei_delta || 0;
+      zero.kinryoku += r.exp_kinryoku || 0;
+      zero.binsoku += r.exp_binsoku || 0;
+      zero.gijutsu += r.exp_gijutsu || 0;
+      zero.chiryoku += r.exp_chiryoku || 0;
+      zero.seishin += r.exp_seishin || 0;
+    }
+    zero.total = zero.kinryoku + zero.binsoku + zero.gijutsu + zero.chiryoku + zero.seishin;
+    return zero;
+  }
+
   return (
     <div>
       <div style={{ display: "flex", gap: 4, marginBottom: 8, flexWrap: "wrap" }}>
@@ -176,10 +308,13 @@ export default function BaseStatTab() {
           }}><div>{s.label}</div><div style={{ fontSize: 9, opacity: 0.7 }}>~{job?.[s.cap]}</div></button>
         ))}
       </div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 12px", marginBottom: 8, borderRadius: 8, background: "#3d3528", border: "2px solid #8b7340" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 12px", marginBottom: 4, borderRadius: 8, background: "#3d3528", border: "2px solid #8b7340" }}>
         <span style={{ fontSize: 14, fontWeight: 700, color: "#f0d880" }}>{job?.name} › {stat?.label} (0~{cap})</span>
         <span style={{ fontSize: 10, color: "#f0d88088" }}>{savedCount}件登録済</span>
       </div>
+
+      {/* 集計パネル */}
+      {!loading && <CalcPanel cap={cap} savedCount={savedCount} calcRange={calcRange} />}
 
       {!loading && <CopyPanel cap={cap} getVal={getVal} edit={edit} saved={saved} onFlash={flash} />}
       {!loading && <RangeFilter cap={cap} range={range} setRange={setRange} savedCount={savedCount} />}
