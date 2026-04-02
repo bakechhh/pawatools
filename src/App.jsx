@@ -3,12 +3,14 @@ import BaseStatTab from "./tabs/BaseStatTab.jsx";
 import SkillsTab from "./tabs/SkillsTab.jsx";
 import SpecialTab from "./tabs/SpecialTab.jsx";
 import GoldTab from "./tabs/GoldTab.jsx";
+import AdminTab from "./tabs/AdminTab.jsx";
 
 const TABS = [
   { key: "base", label: "基本能力" },
   { key: "skills", label: "スキル" },
   { key: "special", label: "必殺技" },
   { key: "gold", label: "金特" },
+  { key: "admin", label: "管理" },
 ];
 
 export default function App() {
@@ -63,6 +65,7 @@ export default function App() {
         {tab === "skills" && <SkillsTab />}
         {tab === "special" && <SpecialTab />}
         {tab === "gold" && <GoldTab />}
+        {tab === "admin" && <AdminTab />}
       </div>
     </div>
   );
