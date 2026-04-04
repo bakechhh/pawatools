@@ -384,14 +384,13 @@ export default function SkillsTab() {
           getVal={(key) => getVal(modalSkill.id, key)}
           onEdit={(key, val) => edit(modalSkill.id, key, val)}
           onClose={() => {
-            if (seqMode) {
-              // 連続モード: 自動保存して次へ
-              if (isDirty(modalSkill.id)) doSave(modalSkill.id);
-              seqNext();
-            } else {
-              setModalSkill(null);
-            }
+            setModalSkill(null);
+            if (seqMode) setSeqMode(false);
           }}
+          onNext={seqMode ? () => {
+            if (isDirty(modalSkill.id)) doSave(modalSkill.id);
+            seqNext();
+          } : null}
           seqMode={seqMode}
           seqCurrent={seqIdx + 1}
           seqTotal={list.length}

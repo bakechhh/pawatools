@@ -138,7 +138,7 @@ function ApplyButton({ onClick, label }) {
 }
 
 // --- スキル入力モーダル ---
-export function SkillInputModal({ skill, cols, getVal, onEdit, onClose, seqMode, seqCurrent, seqTotal }) {
+export function SkillInputModal({ skill, cols, getVal, onEdit, onClose, onNext, seqMode, seqCurrent, seqTotal }) {
   const [mode, setMode] = useState("diff");
   const [before, setBefore] = useState({});
   const [after, setAfter] = useState({});
@@ -217,190 +217,160 @@ export function SkillInputModal({ skill, cols, getVal, onEdit, onClose, seqMode,
           ))}
         </div>
       )}
-      <ApplyButton onClick={handleApply} label={seqMode ? "反映して次へ →" : "反映する"} />
+      {onNext ? (
+        <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+          <button onClick={() => { handleApply(); }} style={{
+            flex: 1, padding: "14px 0", borderRadius: 10, border: "2px solid #d5c89c",
+            background: "#fff", color: "#5a4010", fontSize: 14, fontWeight: 700, cursor: "pointer",
+          }}>反映して閉じる</button>
+          <button onClick={() => {
+            cols.forEach(c => {
+              const val = mode === "diff" ? getDiff(c.key) : (direct[c.key] ?? null);
+              if (val != null) onEdit(c.key, val);
+            });
+            onNext();
+          }} style={{
+            flex: 1, padding: "14px 0", borderRadius: 10, border: "none",
+            background: "linear-gradient(180deg,#f0dca0,#c8a020)", color: "#5a4010",
+            fontSize: 14, fontWeight: 700, cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+          }}>反映して次へ →</button>
+        </div>
+      ) : (
+        <ApplyButton onClick={handleApply} />
+      )}
     </ModalShell>
   );
 }
 
 // --- ステータス連続入力モーダル ---
+// 査定は差分値だけ入力。経験点はテーブルが変わるまで据え置き。
 export function StatSequentialModal({ cols, currentVal, cap, getVal, onEdit, onSave, onClose }) {
   const [val, setVal] = useState(currentVal);
-  const [before, setBefore] = useState({});
-  const [after, setAfter] = useState({});
-  const [prevExp, setPrevExp] = useState({}); // 前の行の経験値（「同じ」用）
-  const [log, setLog] = useState([]); // 入力済みログ
+  const [satei, setSatei] = useState(null); // 査定差分値
+  const [exp, setExp] = useState({ exp_kinryoku: null, exp_binsoku: null, exp_gijutsu: null, exp_chiryoku: null, exp_seishin: null });
+  const [log, setLog] = useState([]);
+  const [expLocked, setExpLocked] = useState(true); // 経験点は据え置きモード
 
-  // 現在行に既存データがあれば直接入力値として表示
-  const existingData = {};
-  cols.forEach(c => { const v = getVal(val, c.key); if (v != null) existingData[c.key] = v; });
-
-  function getDiff(key) {
-    const b = before[key], a = after[key];
-    if (a == null && b == null) return null;
-    return (a ?? 0) - (b ?? 0);
-  }
+  const expCols = cols.filter(c => c.key !== "satei_delta");
+  const sateiCol = cols.find(c => c.key === "satei_delta");
 
   function applyAndNext() {
-    // 現在の値を反映
-    const applied = {};
-    cols.forEach(c => {
-      const d = getDiff(c.key);
-      if (d != null) { onEdit(val, c.key, d); applied[c.key] = d; }
+    // 査定差分を反映
+    if (satei != null) onEdit(val, "satei_delta", satei);
+    // 経験点を反映（据え置き分も含む）
+    expCols.forEach(c => {
+      if (exp[c.key] != null) onEdit(val, c.key, exp[c.key]);
     });
-
-    // 保存
     onSave(val);
+    setLog(prev => [...prev, val]);
 
-    // ログに追加
-    setLog(prev => [...prev, { val, data: applied }]);
-
-    // 次の行へ: 取得後 → 次の取得前
-    const nextBefore = {};
-    cols.forEach(c => { if (after[c.key] != null) nextBefore[c.key] = after[c.key]; });
-
-    // 経験値の「前回値」を保存（「同じ」ボタン用）
-    const curExp = {};
-    cols.forEach(c => {
-      if (c.key !== "satei_delta") {
-        const d = getDiff(c.key);
-        if (d != null) curExp[c.key] = d;
-      }
-    });
-    setPrevExp(curExp);
-
-    // 次へ
+    // 次へ（査定だけリセット、経験点は据え置き）
     if (val < cap) {
       setVal(val + 1);
-      setBefore(nextBefore);
-      setAfter({});
+      setSatei(null);
+      // 経験点はそのまま維持（据え置き）
     }
   }
 
-  function copyPrev(key) {
-    // 前回の差分値から before/after を計算してセット
-    if (prevExp[key] != null) {
-      const b = before[key] ?? 0;
-      setAfter(p => ({ ...p, [key]: b + prevExp[key] }));
-    }
-  }
-
-  function copyAllPrev() {
-    const newAfter = { ...after };
-    cols.forEach(c => {
-      if (c.key !== "satei_delta" && prevExp[c.key] != null) {
-        newAfter[c.key] = (before[c.key] ?? 0) + prevExp[c.key];
-      }
+  function applyAndClose() {
+    if (satei != null) onEdit(val, "satei_delta", satei);
+    expCols.forEach(c => {
+      if (exp[c.key] != null) onEdit(val, c.key, exp[c.key]);
     });
-    setAfter(newAfter);
+    onSave(val);
+    onClose();
   }
-
-  const hasPrev = Object.keys(prevExp).length > 0;
 
   return (
     <ModalShell onClose={onClose}>
       <ModalHeader title="連続入力" onClose={onClose} />
 
-      {/* 進捗バー */}
-      <div style={{ marginBottom: 12 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-          <div style={{ fontSize: 22, fontWeight: 700, color: "#5a4010" }}>
-            {val} <span style={{ fontSize: 13, color: "#999", fontWeight: 400 }}>/ {cap}</span>
-          </div>
-          <div style={{ display: "flex", gap: 4 }}>
-            <button onClick={() => { if (val > 0) { setVal(val - 1); setBefore({}); setAfter({}); } }}
-              disabled={val <= 0}
-              style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #d5d0c0", background: val > 0 ? "#fff" : "#eee", color: val > 0 ? "#666" : "#ccc", fontSize: 12, cursor: val > 0 ? "pointer" : "default" }}>
-              ← 前
-            </button>
-            <button onClick={() => { if (val < cap) { setVal(val + 1); setBefore({}); setAfter({}); } }}
-              disabled={val >= cap}
-              style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #d5d0c0", background: val < cap ? "#fff" : "#eee", color: val < cap ? "#666" : "#ccc", fontSize: 12, cursor: val < cap ? "pointer" : "default" }}>
-              次 →
-            </button>
-          </div>
+      {/* 進捗 */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <div style={{ fontSize: 24, fontWeight: 700, color: "#5a4010" }}>
+          {val} <span style={{ fontSize: 13, color: "#999", fontWeight: 400 }}>/ {cap}</span>
         </div>
-        <div style={{ height: 4, background: "#e0d8c0", borderRadius: 2 }}>
-          <div style={{ height: 4, background: "#c8a020", borderRadius: 2, width: `${(val / cap) * 100}%`, transition: "width 0.2s" }} />
+        <div style={{ display: "flex", gap: 4 }}>
+          <button onClick={() => { if (val > 0) { setVal(val - 1); setSatei(null); } }} disabled={val <= 0}
+            style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #d5d0c0", background: val > 0 ? "#fff" : "#eee", color: val > 0 ? "#666" : "#ccc", fontSize: 12, cursor: val > 0 ? "pointer" : "default" }}>←</button>
+          <button onClick={() => { if (val < cap) { setVal(val + 1); setSatei(null); } }} disabled={val >= cap}
+            style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #d5d0c0", background: val < cap ? "#fff" : "#eee", color: val < cap ? "#666" : "#ccc", fontSize: 12, cursor: val < cap ? "pointer" : "default" }}>→</button>
         </div>
       </div>
+      <div style={{ height: 4, background: "#e0d8c0", borderRadius: 2, marginBottom: 14 }}>
+        <div style={{ height: 4, background: "#c8a020", borderRadius: 2, width: `${(val / cap) * 100}%`, transition: "width 0.2s" }} />
+      </div>
 
-      {/* 全コピーボタン */}
-      {hasPrev && (
-        <button onClick={copyAllPrev} style={{
-          width: "100%", marginBottom: 10, padding: "8px 0", borderRadius: 8,
-          border: "2px dashed #c8a020", background: "#fdf8e8", color: "#5a4010",
-          fontSize: 13, fontWeight: 700, cursor: "pointer",
-        }}>
-          前回と同じ経験点を一括セット
-        </button>
+      {/* 査定差分 — メイン入力 */}
+      {sateiCol && (
+        <div style={{ background: "#fff", borderRadius: 10, padding: "12px 14px", border: "2px solid #b8860b40", marginBottom: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#b8860b", marginBottom: 6 }}>査定差分</div>
+          <BigNumInput value={satei} onChange={setSatei} color="#b8860b" autoFocus
+            onKeyDown={e => { if (e.key === "Enter" && satei != null) applyAndNext(); }} />
+        </div>
       )}
 
-      {/* 各カラム入力 */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {cols.map(c => {
-          const d = getDiff(c.key);
-          const isSatei = c.key === "satei_delta";
-          return (
-            <div key={c.key} style={{ background: "#fff", borderRadius: 8, padding: "8px 10px", border: `1px solid ${c.color}30` }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: c.color }}>{c.label}</span>
-                <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                  {!isSatei && hasPrev && prevExp[c.key] != null && (
-                    <button onClick={() => copyPrev(c.key)} style={{
-                      padding: "2px 8px", borderRadius: 4, border: "1px solid #d5d0c0",
-                      background: "#fdf8e8", color: "#8b7340", fontSize: 10, fontWeight: 600, cursor: "pointer",
-                    }}>同じ({prevExp[c.key]})</button>
-                  )}
-                  {d != null && (
-                    <span style={{ fontSize: 16, fontWeight: 700, color: d > 0 ? c.color : d < 0 ? "#c0392b" : "#999" }}>
-                      {d > 0 ? `+${d}` : d}
-                    </span>
-                  )}
+      {/* 経験点 — 据え置きモード */}
+      <div style={{ background: "#f8f6f0", borderRadius: 10, padding: "10px 12px", border: "1px solid #e0d8c0" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: "#666" }}>経験点コスト</span>
+          <button onClick={() => setExpLocked(!expLocked)} style={{
+            padding: "2px 10px", borderRadius: 4, border: "1px solid #d5d0c0",
+            background: expLocked ? "#e8f5e8" : "#fff8e0", color: expLocked ? "#27ae60" : "#b8860b",
+            fontSize: 10, fontWeight: 700, cursor: "pointer",
+          }}>{expLocked ? "据え置き中" : "編集中"}</button>
+        </div>
+
+        {expLocked ? (
+          // 据え置きモード: コンパクトに現在値を表示
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {expCols.map(c => (
+              <div key={c.key} style={{ textAlign: "center", minWidth: 44 }}>
+                <div style={{ fontSize: 9, color: "#999" }}>{c.label}</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: exp[c.key] != null ? c.color : "#ccc" }}>
+                  {exp[c.key] != null ? exp[c.key] : "-"}
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 9, color: "#999", textAlign: "center" }}>取得前</div>
-                  <BigNumInput value={before[c.key]} onChange={v => setBefore(p => ({ ...p, [c.key]: v }))} color="#999" />
-                </div>
-                <div style={{ fontSize: 16, color: "#aaa", paddingTop: 12 }}>→</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 9, color: "#999", textAlign: "center" }}>取得後</div>
-                  <BigNumInput value={after[c.key]} onChange={v => setAfter(p => ({ ...p, [c.key]: v }))} color={c.color} />
-                </div>
+            ))}
+          </div>
+        ) : (
+          // 編集モード: 各経験値を入力
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {expCols.map(c => (
+              <div key={c.key} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: c.color, width: 32 }}>{c.label}</span>
+                <BigNumInput value={exp[c.key]} onChange={v => setExp(p => ({ ...p, [c.key]: v }))} color={c.color} />
               </div>
-            </div>
-          );
-        })}
+            ))}
+          </div>
+        )}
+
+        <div style={{ fontSize: 9, color: "#aaa", marginTop: 4 }}>
+          経験点テーブルが変わったら「据え置き中」を押して編集
+        </div>
       </div>
 
-      {/* 反映して次へ */}
-      <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-        <button onClick={() => {
-          cols.forEach(c => { const d = getDiff(c.key); if (d != null) onEdit(val, c.key, d); });
-          onSave(val);
-          onClose();
-        }} style={{
+      {/* ボタン */}
+      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+        <button onClick={applyAndClose} style={{
           flex: 1, padding: "14px 0", borderRadius: 10, border: "2px solid #d5c89c",
           background: "#fff", color: "#5a4010", fontSize: 14, fontWeight: 700, cursor: "pointer",
-        }}>反映して閉じる</button>
+        }}>保存して閉じる</button>
         <button onClick={applyAndNext} disabled={val >= cap} style={{
           flex: 1, padding: "14px 0", borderRadius: 10, border: "none",
           background: val < cap ? "linear-gradient(180deg,#f0dca0,#c8a020)" : "#e0e0d8",
           color: val < cap ? "#5a4010" : "#bbb", fontSize: 14, fontWeight: 700,
           cursor: val < cap ? "pointer" : "default", boxShadow: val < cap ? "0 2px 8px rgba(0,0,0,0.15)" : "none",
-        }}>反映して次へ →</button>
+        }}>次へ →</button>
       </div>
 
-      {/* 入力済みログ */}
+      {/* ログ */}
       {log.length > 0 && (
-        <div style={{ marginTop: 12, borderTop: "1px solid #e0d8c0", paddingTop: 8 }}>
-          <div style={{ fontSize: 10, color: "#999", marginBottom: 4 }}>今回の入力 ({log.length}件)</div>
+        <div style={{ marginTop: 10, borderTop: "1px solid #e0d8c0", paddingTop: 6 }}>
+          <div style={{ fontSize: 10, color: "#999", marginBottom: 3 }}>入力済み ({log.length}件)</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
-            {log.map((l, i) => (
-              <span key={i} style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#e8f5e8", color: "#27ae60", fontWeight: 600 }}>
-                {l.val}
-              </span>
+            {log.map((v, i) => (
+              <span key={i} style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#e8f5e8", color: "#27ae60", fontWeight: 600 }}>{v}</span>
             ))}
           </div>
         </div>
