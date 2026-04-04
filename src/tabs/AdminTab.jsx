@@ -19,7 +19,7 @@ const selectStyle = { ...inputStyle, appearance: "auto" };
 const labelStyle = { fontSize: 11, fontWeight: 700, color: "#5a4010", marginBottom: 3, display: "block" };
 const btnStyle = (a) => ({ padding: "10px 24px", borderRadius: 8, border: "none", cursor: a ? "pointer" : "default", background: a ? "linear-gradient(180deg,#f0dca0,#c8a020)" : "#e0e0d8", color: a ? "#5a4010" : "#bbb", fontSize: 14, fontWeight: 700, width: "100%" });
 
-function EditableItem({ item, fields, onSave, onDelete }) {
+function EditableItem({ item, fields, onSave, onDelete, sortButtons }) {
   const [editing, setEditing] = useState(false);
   const [vals, setVals] = useState({});
 
@@ -48,6 +48,7 @@ function EditableItem({ item, fields, onSave, onDelete }) {
     </div>
   ) : (
     <div style={{ display: "flex", alignItems: "center", padding: "4px 8px", borderBottom: "1px solid #eee", gap: 4 }}>
+      {sortButtons && <div style={{ display: "flex", gap: 2, marginRight: 4 }}>{sortButtons}</div>}
       <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
         {item._display}
       </div>
@@ -77,9 +78,19 @@ export default function AdminTab() {
   useEffect(() => { if (authed) loadExisting(); }, [authed, mode]);
 
   async function loadExisting() {
-    if (mode === "skill") setExistingSkills(await GET("skills", "order=category_id,name"));
+    if (mode === "skill") setExistingSkills(await GET("skills", "order=sort_order.asc.nullsfirst,category_id,name"));
     else if (mode === "gold") setExistingGold(await GET("gold_skills", "order=name"));
     else setExistingSpecial(await GET("special_moves", "order=job_id,name"));
+  }
+
+  async function moveSkill(idx, dir) {
+    const arr = [...existingSkills];
+    const swapIdx = idx + dir;
+    if (swapIdx < 0 || swapIdx >= arr.length) return;
+    const a = arr[idx], b = arr[swapIdx];
+    const aOrder = a.sort_order ?? idx * 10, bOrder = b.sort_order ?? swapIdx * 10;
+    await Promise.all([PATCH("skills", a.id, { sort_order: bOrder }), PATCH("skills", b.id, { sort_order: aOrder })]);
+    loadExisting();
   }
 
   function tryAuth() {
@@ -88,7 +99,7 @@ export default function AdminTab() {
   }
   function flash(m) { setToast(m); setTimeout(() => setToast(""), 2500); }
 
-  async function addSkill() { if (!skName.trim() || !skCatId) { flash("名前とカテゴリは必須"); return; } const res = await INSERT("skills", { name: skName.trim(), grade: skGrade || null, category_id: Number(skCatId), notes: skNote || null }); if (res?.length) { flash(`✓「${skName}」追加`); setSkName(""); setSkGrade(""); setSkNote(""); loadExisting(); } else flash("追加失敗"); }
+  async function addSkill() { if (!skName.trim() || !skCatId) { flash("名前とカテゴリは必須"); return; } const maxOrder = existingSkills.reduce((m, s) => Math.max(m, s.sort_order ?? 0), 0); const res = await INSERT("skills", { name: skName.trim(), grade: skGrade || null, category_id: Number(skCatId), notes: skNote || null, sort_order: maxOrder + 10 }); if (res?.length) { flash(`✓「${skName}」追加`); setSkName(""); setSkGrade(""); setSkNote(""); loadExisting(); } else flash("追加失敗"); }
   async function addGold() { if (!gsName.trim()) { flash("名前は必須"); return; } const res = await INSERT("gold_skills", { name: gsName.trim(), obtain_source: gsSource || null, notes: gsNote || null }); if (res?.length) { flash(`✓「${gsName}」追加`); setGsName(""); setGsNote(""); loadExisting(); } else flash("追加失敗"); }
   async function addSpecial() { if (!smName.trim() || !smJobId) { flash("名前とジョブは必須"); return; } const res = await INSERT("special_moves", { name: smName.trim(), job_id: Number(smJobId), element: smElement || null, obtain_source: smSource || null, notes: smNote || null }); if (res?.length) { flash(`✓「${smName}」追加`); setSmName(""); setSmElement(""); setSmSource(""); setSmNote(""); loadExisting(); } else flash("追加失敗"); }
 
@@ -131,9 +142,13 @@ export default function AdminTab() {
             <button onClick={addSkill} style={btnStyle(skName.trim() && skCatId)}>追加</button>
           </div>
           <div style={{ marginTop: 14, fontSize: 11, color: "#888", fontWeight: 700 }}>登録済み ({existingSkills.length}件)</div>
-          <div style={{ maxHeight: 300, overflowY: "auto", marginTop: 4 }}>
-            {existingSkills.map(s => (
+          <div style={{ maxHeight: 400, overflowY: "auto", marginTop: 4 }}>
+            {existingSkills.map((s, idx) => (
               <EditableItem key={s.id} item={{ ...s, _display: <><span style={{ fontWeight: 600 }}>{s.name}{s.grade || ""}</span><span style={{ fontSize: 10, color: "#aaa", marginLeft: 4 }}>{cats.find(c => c.id === s.category_id)?.name}</span></> }}
+                sortButtons={<>
+                  <button onClick={() => moveSkill(idx, -1)} disabled={idx === 0} style={{ fontSize: 10, padding: "2px 5px", borderRadius: 3, border: "1px solid #d5d0c0", background: idx === 0 ? "#eee" : "#fff", color: idx === 0 ? "#ccc" : "#666", cursor: idx === 0 ? "default" : "pointer", lineHeight: 1 }}>▲</button>
+                  <button onClick={() => moveSkill(idx, 1)} disabled={idx === existingSkills.length - 1} style={{ fontSize: 10, padding: "2px 5px", borderRadius: 3, border: "1px solid #d5d0c0", background: idx === existingSkills.length - 1 ? "#eee" : "#fff", color: idx === existingSkills.length - 1 ? "#ccc" : "#666", cursor: idx === existingSkills.length - 1 ? "default" : "pointer", lineHeight: 1 }}>▼</button>
+                </>}
                 fields={[
                   { key: "name", label: "名前", flex: 2 },
                   { key: "grade", label: "等級", type: "select", options: [{ value: "", label: "なし" }, { value: "○", label: "○" }, { value: "◎", label: "◎" }] },

@@ -1,9 +1,33 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
+
+const DRAFT_PREFIX = "pawatools_draft_";
 
 export function useEditable(savedData, scope = "") {
-  const [edits, setEdits] = useState({});
+  // Load draft from localStorage on scope change
+  const [edits, setEdits] = useState(() => {
+    try { const d = localStorage.getItem(DRAFT_PREFIX + scope); return d ? JSON.parse(d) : {}; } catch { return {}; }
+  });
   const [lastScope, setLastScope] = useState(scope);
-  if (scope !== lastScope) { setEdits({}); setLastScope(scope); }
+  if (scope !== lastScope) {
+    // Save current edits before switching
+    if (Object.keys(edits).length > 0) {
+      try { localStorage.setItem(DRAFT_PREFIX + lastScope, JSON.stringify(edits)); } catch {}
+    }
+    // Load new scope's draft
+    let loaded = {};
+    try { const d = localStorage.getItem(DRAFT_PREFIX + scope); if (d) loaded = JSON.parse(d); } catch {}
+    setEdits(loaded);
+    setLastScope(scope);
+  }
+
+  // Auto-save drafts to localStorage
+  useEffect(() => {
+    if (Object.keys(edits).length > 0) {
+      try { localStorage.setItem(DRAFT_PREFIX + scope, JSON.stringify(edits)); } catch {}
+    } else {
+      try { localStorage.removeItem(DRAFT_PREFIX + scope); } catch {}
+    }
+  }, [edits, scope]);
 
   const edit = useCallback((id, col, newVal) => {
     setEdits(prev => {
@@ -12,7 +36,6 @@ export function useEditable(savedData, scope = "") {
       const orig = savedData?.[id]?.[col] ?? null;
       const same = newVal === orig
         || (newVal == null && orig == null)
-        || (newVal === 0 && (orig === 0 || orig == null))
         || (newVal === "" && (orig === "" || orig == null));
       if (same) { delete next[key]; } else { next[key] = newVal; }
       return next;
@@ -39,9 +62,15 @@ export function useEditable(savedData, scope = "") {
   const clearEdits = useCallback((id) => {
     if (id != null) {
       const p = `${id}::`;
-      setEdits(prev => { const n = { ...prev }; Object.keys(n).forEach(k => { if (k.startsWith(p)) delete n[k]; }); return n; });
-    } else { setEdits({}); }
-  }, []);
+      setEdits(prev => {
+        const n = { ...prev }; Object.keys(n).forEach(k => { if (k.startsWith(p)) delete n[k]; });
+        return n;
+      });
+    } else {
+      setEdits({});
+      try { localStorage.removeItem(DRAFT_PREFIX + scope); } catch {}
+    }
+  }, [scope]);
 
   const getEditsFor = useCallback((id) => {
     const p = `${id}::`;

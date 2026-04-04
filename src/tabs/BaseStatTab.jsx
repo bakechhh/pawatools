@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { GET } from "../supabase.js";
 import { saveRow } from "../helpers/saveRow.js";
 import { JOBS, STATS, DATA_COLS, JC } from "../constants.js";
-import { Pill, Toast, SaveBtn, SaveAllBtn, NumInput, DetailRow, TS } from "../components/UI.jsx";
+import { Pill, Toast, SaveBtn, SaveAllBtn, NumInput, DetailRow, StatSequentialModal, TS } from "../components/UI.jsx";
+import ScreenshotOCR from "../components/ScreenshotOCR.jsx";
 import { useEditable } from "../hooks/useEditable.js";
 
 // 範囲コピーパネル
@@ -207,6 +208,8 @@ export default function BaseStatTab() {
   const [saving, setSaving] = useState({});
   const [expanded, setExpanded] = useState({});
   const [range, setRange] = useState("all");
+  const [seqModal, setSeqModal] = useState(null); // { startVal }
+  const [showOCR, setShowOCR] = useState(false);
 
   const { edit, getVal, isDirty, dirtyIds, clearEdits, getEditsFor } = useEditable(saved, `${jobId}_${statKey}`);
   const job = JOBS.find(j => j.id === jobId);
@@ -251,12 +254,16 @@ export default function BaseStatTab() {
 
   function addComment(val, text) {
     const ex = saved[val] || {};
-    edit(val, "comments", [...(ex.comments || []), { text, at: new Date().toISOString() }]);
+    edit(val, "comments", [...(getVal(val, "comments") || ex.comments || []), { text, at: new Date().toISOString() }]);
   }
-  function addCondition(val, text) {
+  function addCondition(val, cond) {
     const ex = saved[val] || {};
-    edit(val, "conditions", [...(ex.conditions || []), { text, at: new Date().toISOString() }]);
+    const existing = getVal(val, "conditions") || ex.conditions || [];
+    const item = typeof cond === "string" ? { text: cond, at: new Date().toISOString() } : cond;
+    edit(val, "conditions", [...existing, item]);
   }
+  function updateConditions(val, arr) { edit(val, "conditions", arr); }
+  function updateComments(val, arr) { edit(val, "comments", arr); }
 
   function flash(m) { setToast(m); setTimeout(() => setToast(""), 2500); }
 
@@ -316,7 +323,21 @@ export default function BaseStatTab() {
       {/* 集計パネル */}
       {!loading && <CalcPanel cap={cap} savedCount={savedCount} calcRange={calcRange} />}
 
-      {!loading && <CopyPanel cap={cap} getVal={getVal} edit={edit} saved={saved} onFlash={flash} />}
+      {!loading && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+          <button onClick={() => setSeqModal({ startVal: 0 })} style={{
+            padding: "8px 16px", borderRadius: 8, border: "none",
+            background: "linear-gradient(180deg,#f0dca0,#c8a020)", color: "#5a4010",
+            fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 2px 6px rgba(0,0,0,0.1)",
+          }}>連続入力</button>
+          <button onClick={() => setShowOCR(true)} style={{
+            padding: "8px 14px", borderRadius: 8, border: "none",
+            background: "linear-gradient(180deg,#a0d0f0,#2471a3)", color: "#fff",
+            fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 2px 6px rgba(0,0,0,0.1)",
+          }}>スクショ読取</button>
+          <CopyPanel cap={cap} getVal={getVal} edit={edit} saved={saved} onFlash={flash} />
+        </div>
+      )}
       {!loading && <RangeFilter cap={cap} range={range} setRange={setRange} savedCount={savedCount} />}
 
       <SaveAllBtn count={dirtyIds.size} onClick={doSaveAll} />
@@ -347,11 +368,12 @@ export default function BaseStatTab() {
                   <tr key={val} style={{
                     background: dirty ? "#fff8e0" : hasData ? "#f0faf0" : val % 2 ? "#faf8f2" : "#fff",
                   }}>
-                    <td style={{
+                    <td onClick={() => setSeqModal({ startVal: val })} style={{
                       ...TS.td(false), textAlign: "center", fontWeight: 700, fontSize: 12,
                       color: val === cap ? "#c0392b" : val === 0 ? "#bbb" : "#333",
                       borderRight: "2px solid #d5c89c",
                       background: dirty ? "#fff8e0" : hasData ? "#e8f5e8" : "inherit",
+                      cursor: "pointer", userSelect: "none",
                     }}>
                       {val}
                       {hasData && !dirty && <span style={{ fontSize: 8, color: "#27ae60", display: "block" }}>✓</span>}
@@ -377,12 +399,42 @@ export default function BaseStatTab() {
                   </tr>,
                   isExp && <DetailRow key={`${val}_d`} colSpan={DATA_COLS.length + 3}
                     conditions={conds} comments={comms}
-                    onAddCondition={t => addCondition(val, t)} onAddComment={t => addComment(val, t)} />,
+                    onAddCondition={c => addCondition(val, c)} onAddComment={t => addComment(val, t)}
+                    onUpdateConditions={arr => updateConditions(val, arr)} onUpdateComments={arr => updateComments(val, arr)} />,
                 ];
               })}
             </tbody>
           </table>
         </div>
+      )}
+      {showOCR && (
+        <ScreenshotOCR statKey={statKey} onClose={() => setShowOCR(false)}
+          onResult={(r) => {
+            if (r.statValue != null) {
+              const sv = r.statValue;
+              if (r.satei_delta != null) edit(sv, "satei_delta", r.satei_delta);
+              if (r.exp_kinryoku != null) edit(sv, "exp_kinryoku", r.exp_kinryoku);
+              if (r.exp_binsoku != null) edit(sv, "exp_binsoku", r.exp_binsoku);
+              if (r.exp_gijutsu != null) edit(sv, "exp_gijutsu", r.exp_gijutsu);
+              if (r.exp_chiryoku != null) edit(sv, "exp_chiryoku", r.exp_chiryoku);
+              if (r.exp_seishin != null) edit(sv, "exp_seishin", r.exp_seishin);
+              flash(`✓ ${stat.label}=${sv} にOCR結果を反映（未保存）`);
+            } else {
+              flash("ステータス値が未入力です");
+            }
+          }}
+        />
+      )}
+      {seqModal && (
+        <StatSequentialModal
+          cols={DATA_COLS}
+          currentVal={seqModal.startVal}
+          cap={cap}
+          getVal={getVal}
+          onEdit={edit}
+          onSave={doSave}
+          onClose={() => setSeqModal(null)}
+        />
       )}
       <Toast msg={toast} />
     </div>

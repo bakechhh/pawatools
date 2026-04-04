@@ -44,8 +44,10 @@ export default function GoldTab() {
   }, [gData, jobId, level, getEditsFor, clearEdits]);
 
   async function doSaveAll() { if (!dirtyIds.size) return; for (const gid of dirtyIds) await doSave(Number(gid)); flash(`✓ ${dirtyIds.size}件 一括保存`); }
-  function addComment(gid, text) { const ex = gData[gid] || {}; edit(gid, "comments", [...(ex.comments || []), { text, at: new Date().toISOString() }]); }
-  function addCondition(gid, text) { const ex = gData[gid] || {}; edit(gid, "conditions", [...(ex.conditions || []), { text, at: new Date().toISOString() }]); }
+  function addComment(gid, text) { const ex = gData[gid] || {}; edit(gid, "comments", [...(getVal(gid, "comments") || ex.comments || []), { text, at: new Date().toISOString() }]); }
+  function addCondition(gid, cond) { const ex = gData[gid] || {}; const existing = getVal(gid, "conditions") || ex.conditions || []; const item = typeof cond === "string" ? { text: cond, at: new Date().toISOString() } : cond; edit(gid, "conditions", [...existing, item]); }
+  function updateConditions(gid, arr) { edit(gid, "conditions", arr); }
+  function updateComments(gid, arr) { edit(gid, "comments", arr); }
   function flash(m) { setToast(m); setTimeout(() => setToast(""), 2500); }
 
   if (ld) return <div style={{ textAlign: "center", padding: 40, color: "#999" }}>読み込み中...</div>;
@@ -89,7 +91,8 @@ export default function GoldTab() {
               </tr>,
               isExp && <DetailRow key={`${g.id}_d`} colSpan={SKILL_COLS.length + 3}
                 conditions={conds} comments={comms}
-                onAddCondition={t => addCondition(g.id, t)} onAddComment={t => addComment(g.id, t)} />,
+                onAddCondition={c => addCondition(g.id, c)} onAddComment={t => addComment(g.id, t)}
+                onUpdateConditions={arr => updateConditions(g.id, arr)} onUpdateComments={arr => updateComments(g.id, arr)} />,
             ];
           })}
         </tbody></table>

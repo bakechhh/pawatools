@@ -47,8 +47,10 @@ export default function SpecialTab() {
   }, [smData, jobId, level, getEditsFor, clearEdits]);
 
   async function doSaveAll() { if (!dirtyIds.size) return; for (const sid of dirtyIds) await doSave(Number(sid)); flash(`✓ ${dirtyIds.size}件 一括保存`); }
-  function addComment(sid, text) { const ex = smData[sid] || {}; edit(sid, "comments", [...(ex.comments || []), { text, at: new Date().toISOString() }]); }
-  function addCondition(sid, text) { const ex = smData[sid] || {}; edit(sid, "conditions", [...(ex.conditions || []), { text, at: new Date().toISOString() }]); }
+  function addComment(sid, text) { const ex = smData[sid] || {}; edit(sid, "comments", [...(getVal(sid, "comments") || ex.comments || []), { text, at: new Date().toISOString() }]); }
+  function addCondition(sid, cond) { const ex = smData[sid] || {}; const existing = getVal(sid, "conditions") || ex.conditions || []; const item = typeof cond === "string" ? { text: cond, at: new Date().toISOString() } : cond; edit(sid, "conditions", [...existing, item]); }
+  function updateConditions(sid, arr) { edit(sid, "conditions", arr); }
+  function updateComments(sid, arr) { edit(sid, "comments", arr); }
   function flash(m) { setToast(m); setTimeout(() => setToast(""), 2500); }
 
   if (ld) return <div style={{ textAlign: "center", padding: 40, color: "#999" }}>読み込み中...</div>;
@@ -105,7 +107,8 @@ export default function SpecialTab() {
               </tr>,
               isExp && <DetailRow key={`${s.id}_d`} colSpan={SKILL_COLS.length + 3}
                 conditions={conds} comments={comms}
-                onAddCondition={t => addCondition(s.id, t)} onAddComment={t => addComment(s.id, t)} />,
+                onAddCondition={c => addCondition(s.id, c)} onAddComment={t => addComment(s.id, t)}
+                onUpdateConditions={arr => updateConditions(s.id, arr)} onUpdateComments={arr => updateComments(s.id, arr)} />,
             ];
           })}
         </tbody></table>
