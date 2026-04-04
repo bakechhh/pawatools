@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { GET, INSERT, UPSERT } from "../supabase.js";
 import { JOBS, JC, EL } from "../constants.js";
 import { Pill, Badge, Toast } from "../components/UI.jsx";
@@ -19,7 +19,7 @@ const selectStyle = { ...inputStyle, appearance: "auto" };
 const labelStyle = { fontSize: 11, fontWeight: 700, color: "#5a4010", marginBottom: 3, display: "block" };
 const btnStyle = (a) => ({ padding: "10px 24px", borderRadius: 8, border: "none", cursor: a ? "pointer" : "default", background: a ? "linear-gradient(180deg,#f0dca0,#c8a020)" : "#e0e0d8", color: a ? "#5a4010" : "#bbb", fontSize: 14, fontWeight: 700, width: "100%" });
 
-function EditableItem({ item, fields, onSave, onDelete, sortButtons }) {
+function EditableItem({ item, fields, onSave, onDelete, sortButtons, dragHandlers }) {
   const [editing, setEditing] = useState(false);
   const [vals, setVals] = useState({});
 
@@ -47,7 +47,11 @@ function EditableItem({ item, fields, onSave, onDelete, sortButtons }) {
       </div>
     </div>
   ) : (
-    <div style={{ display: "flex", alignItems: "center", padding: "4px 8px", borderBottom: "1px solid #eee", gap: 4 }}>
+    <div {...(dragHandlers || {})} style={{ display: "flex", alignItems: "center", padding: "4px 8px", borderBottom: "1px solid #eee", gap: 4, ...(dragHandlers?.style || {}) }}>
+      {dragHandlers && (
+        <div style={{ cursor: "grab", padding: "2px 4px", color: "#bbb", fontSize: 14, touchAction: "none", userSelect: "none" }}
+          onMouseDown={dragHandlers.onGripDown} onTouchStart={dragHandlers.onGripDown}>☰</div>
+      )}
       {sortButtons && <div style={{ display: "flex", gap: 2, marginRight: 4 }}>{sortButtons}</div>}
       <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
         {item._display}
@@ -56,6 +60,68 @@ function EditableItem({ item, fields, onSave, onDelete, sortButtons }) {
       <button onClick={() => { if (confirm(`「${item.name}」を削除しますか？`)) onDelete(); }} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 3, border: "1px solid #c0392b44", background: "#fff", color: "#c0392b", cursor: "pointer" }}>削除</button>
     </div>
   );
+}
+
+// ドラッグ並べ替えフック
+function useDragSort(items, onReorder) {
+  const [dragIdx, setDragIdx] = useState(null);
+  const [overIdx, setOverIdx] = useState(null);
+  const listRef = useRef(null);
+  const stateRef = useRef({ dragIdx: null, overIdx: null });
+
+  const getHandlers = useCallback((idx) => {
+    return {
+      style: {
+        background: dragIdx === idx ? "#fff8e0" : overIdx === idx ? "#eaf2f8" : undefined,
+        transition: "background 0.1s",
+      },
+      onGripDown: (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setDragIdx(idx);
+        stateRef.current.dragIdx = idx;
+        stateRef.current.overIdx = idx;
+
+        const onMove = (ev) => {
+          ev.preventDefault();
+          const y = ev.touches ? ev.touches[0].clientY : ev.clientY;
+          if (!listRef.current) return;
+          const children = listRef.current.children;
+          for (let i = 0; i < children.length; i++) {
+            const rect = children[i].getBoundingClientRect();
+            if (y >= rect.top && y <= rect.bottom) {
+              stateRef.current.overIdx = i;
+              setOverIdx(i);
+              break;
+            }
+          }
+        };
+
+        const onUp = () => {
+          const from = stateRef.current.dragIdx;
+          const to = stateRef.current.overIdx;
+          if (from != null && to != null && from !== to) {
+            onReorder(from, to);
+          }
+          setDragIdx(null);
+          setOverIdx(null);
+          stateRef.current.dragIdx = null;
+          stateRef.current.overIdx = null;
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+          document.removeEventListener("touchmove", onMove);
+          document.removeEventListener("touchend", onUp);
+        };
+
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+        document.addEventListener("touchmove", onMove, { passive: false });
+        document.addEventListener("touchend", onUp);
+      },
+    };
+  }, [dragIdx, overIdx, onReorder]);
+
+  return { getHandlers, listRef };
 }
 
 export default function AdminTab() {
@@ -83,15 +149,37 @@ export default function AdminTab() {
     else setExistingSpecial(await GET("special_moves", "order=job_id,name"));
   }
 
-  async function moveSkill(idx, dir) {
+  const [orderDirty, setOrderDirty] = useState(false);
+  const [savingOrder, setSavingOrder] = useState(false);
+
+  function moveSkill(idx, dir) {
     const arr = [...existingSkills];
     const swapIdx = idx + dir;
     if (swapIdx < 0 || swapIdx >= arr.length) return;
-    const a = arr[idx], b = arr[swapIdx];
-    const aOrder = a.sort_order ?? idx * 10, bOrder = b.sort_order ?? swapIdx * 10;
-    await Promise.all([PATCH("skills", a.id, { sort_order: bOrder }), PATCH("skills", b.id, { sort_order: aOrder })]);
-    loadExisting();
+    [arr[idx], arr[swapIdx]] = [arr[swapIdx], arr[idx]];
+    setExistingSkills(arr);
+    setOrderDirty(true);
   }
+
+  function reorderSkill(fromIdx, toIdx) {
+    if (fromIdx === toIdx) return;
+    const arr = [...existingSkills];
+    const [moved] = arr.splice(fromIdx, 1);
+    arr.splice(toIdx, 0, moved);
+    setExistingSkills(arr);
+    setOrderDirty(true);
+  }
+
+  async function saveOrder() {
+    setSavingOrder(true);
+    const updates = existingSkills.map((s, i) => PATCH("skills", s.id, { sort_order: (i + 1) * 10 }));
+    await Promise.all(updates);
+    setOrderDirty(false);
+    setSavingOrder(false);
+    flash("✓ 並び順を保存しました");
+  }
+
+  const { getHandlers: getDragHandlers, listRef: skillListRef } = useDragSort(existingSkills, reorderSkill);
 
   function tryAuth() {
     if (!ADMIN_PASS) { flash("管理パスワードが未設定"); return; }
@@ -141,10 +229,20 @@ export default function AdminTab() {
             <div><label style={labelStyle}>メモ</label><input value={skNote} onChange={e => setSkNote(e.target.value)} placeholder="任意メモ" style={inputStyle} /></div>
             <button onClick={addSkill} style={btnStyle(skName.trim() && skCatId)}>追加</button>
           </div>
-          <div style={{ marginTop: 14, fontSize: 11, color: "#888", fontWeight: 700 }}>登録済み ({existingSkills.length}件)</div>
-          <div style={{ maxHeight: 400, overflowY: "auto", marginTop: 4 }}>
+          <div style={{ marginTop: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 11, color: "#888", fontWeight: 700 }}>登録済み ({existingSkills.length}件)</span>
+            {orderDirty && (
+              <button onClick={saveOrder} disabled={savingOrder} style={{
+                padding: "4px 14px", borderRadius: 6, border: "none",
+                background: savingOrder ? "#ddd" : "linear-gradient(180deg,#f0dca0,#c8a020)",
+                color: savingOrder ? "#999" : "#5a4010", fontSize: 11, fontWeight: 700, cursor: savingOrder ? "default" : "pointer",
+              }}>{savingOrder ? "保存中..." : "並び順を保存"}</button>
+            )}
+          </div>
+          <div ref={skillListRef} style={{ maxHeight: 400, overflowY: "auto", marginTop: 4 }}>
             {existingSkills.map((s, idx) => (
               <EditableItem key={s.id} item={{ ...s, _display: <><span style={{ fontWeight: 600 }}>{s.name}{s.grade || ""}</span><span style={{ fontSize: 10, color: "#aaa", marginLeft: 4 }}>{cats.find(c => c.id === s.category_id)?.name}</span></> }}
+                dragHandlers={getDragHandlers(idx)}
                 sortButtons={<>
                   <button onClick={() => moveSkill(idx, -1)} disabled={idx === 0} style={{ fontSize: 10, padding: "2px 5px", borderRadius: 3, border: "1px solid #d5d0c0", background: idx === 0 ? "#eee" : "#fff", color: idx === 0 ? "#ccc" : "#666", cursor: idx === 0 ? "default" : "pointer", lineHeight: 1 }}>▲</button>
                   <button onClick={() => moveSkill(idx, 1)} disabled={idx === existingSkills.length - 1} style={{ fontSize: 10, padding: "2px 5px", borderRadius: 3, border: "1px solid #d5d0c0", background: idx === existingSkills.length - 1 ? "#eee" : "#fff", color: idx === existingSkills.length - 1 ? "#ccc" : "#666", cursor: idx === existingSkills.length - 1 ? "default" : "pointer", lineHeight: 1 }}>▼</button>
