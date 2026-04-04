@@ -243,37 +243,38 @@ export function SkillInputModal({ skill, cols, getVal, onEdit, onClose, onNext, 
 }
 
 // --- ステータス連続入力モーダル ---
-// 査定は差分値だけ入力。経験点はテーブルが変わるまで据え置き。
+// 査定値を入力 → 前回との差分を自動計算。経験点はテーブルが変わるまで据え置き。
 export function StatSequentialModal({ cols, currentVal, cap, getVal, onEdit, onSave, onClose }) {
   const [val, setVal] = useState(currentVal);
-  const [satei, setSatei] = useState(null); // 査定差分値
+  const [score, setScore] = useState(null);       // 今回の査定値（例: 880）
+  const [prevScore, setPrevScore] = useState(null); // 前回の査定値（例: 739）
   const [exp, setExp] = useState({ exp_kinryoku: null, exp_binsoku: null, exp_gijutsu: null, exp_chiryoku: null, exp_seishin: null });
   const [log, setLog] = useState([]);
-  const [expLocked, setExpLocked] = useState(true); // 経験点は据え置きモード
+  const [expLocked, setExpLocked] = useState(true);
 
   const expCols = cols.filter(c => c.key !== "satei_delta");
   const sateiCol = cols.find(c => c.key === "satei_delta");
+  const delta = (prevScore != null && score != null) ? score - prevScore : null;
 
   function applyAndNext() {
     // 査定差分を反映
-    if (satei != null) onEdit(val, "satei_delta", satei);
-    // 経験点を反映（据え置き分も含む）
+    if (delta != null) onEdit(val, "satei_delta", delta);
+    // 経験点を反映
     expCols.forEach(c => {
       if (exp[c.key] != null) onEdit(val, c.key, exp[c.key]);
     });
     onSave(val);
-    setLog(prev => [...prev, val]);
+    setLog(prev => [...prev, { v: val, d: delta }]);
 
-    // 次へ（査定だけリセット、経験点は据え置き）
     if (val < cap) {
       setVal(val + 1);
-      setSatei(null);
-      // 経験点はそのまま維持（据え置き）
+      setPrevScore(score);  // 今回の査定値 → 次回の「前回値」
+      setScore(null);       // 入力リセット
     }
   }
 
   function applyAndClose() {
-    if (satei != null) onEdit(val, "satei_delta", satei);
+    if (delta != null) onEdit(val, "satei_delta", delta);
     expCols.forEach(c => {
       if (exp[c.key] != null) onEdit(val, c.key, exp[c.key]);
     });
@@ -291,9 +292,9 @@ export function StatSequentialModal({ cols, currentVal, cap, getVal, onEdit, onS
           {val} <span style={{ fontSize: 13, color: "#999", fontWeight: 400 }}>/ {cap}</span>
         </div>
         <div style={{ display: "flex", gap: 4 }}>
-          <button onClick={() => { if (val > 0) { setVal(val - 1); setSatei(null); } }} disabled={val <= 0}
+          <button onClick={() => { if (val > 0) { setVal(val - 1); setScore(null); } }} disabled={val <= 0}
             style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #d5d0c0", background: val > 0 ? "#fff" : "#eee", color: val > 0 ? "#666" : "#ccc", fontSize: 12, cursor: val > 0 ? "pointer" : "default" }}>←</button>
-          <button onClick={() => { if (val < cap) { setVal(val + 1); setSatei(null); } }} disabled={val >= cap}
+          <button onClick={() => { if (val < cap) { setVal(val + 1); setScore(null); } }} disabled={val >= cap}
             style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #d5d0c0", background: val < cap ? "#fff" : "#eee", color: val < cap ? "#666" : "#ccc", fontSize: 12, cursor: val < cap ? "pointer" : "default" }}>→</button>
         </div>
       </div>
@@ -301,12 +302,27 @@ export function StatSequentialModal({ cols, currentVal, cap, getVal, onEdit, onS
         <div style={{ height: 4, background: "#c8a020", borderRadius: 2, width: `${(val / cap) * 100}%`, transition: "width 0.2s" }} />
       </div>
 
-      {/* 査定差分 — メイン入力 */}
+      {/* 査定値入力 → 差分自動計算 */}
       {sateiCol && (
         <div style={{ background: "#fff", borderRadius: 10, padding: "12px 14px", border: "2px solid #b8860b40", marginBottom: 10 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#b8860b", marginBottom: 6 }}>査定差分</div>
-          <BigNumInput value={satei} onChange={setSatei} color="#b8860b" autoFocus
-            onKeyDown={e => { if (e.key === "Enter" && satei != null) applyAndNext(); }} />
+          <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 10, color: "#999", marginBottom: 2 }}>前回の査定</div>
+              <BigNumInput value={prevScore} onChange={setPrevScore} color="#999" />
+            </div>
+            <div style={{ fontSize: 18, color: "#aaa", paddingBottom: 10 }}>→</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 10, color: "#999", marginBottom: 2 }}>今回の査定</div>
+              <BigNumInput value={score} onChange={setScore} color="#b8860b" autoFocus
+                onKeyDown={e => { if (e.key === "Enter" && delta != null) applyAndNext(); }} />
+            </div>
+            <div style={{ width: 60, textAlign: "center", paddingBottom: 6 }}>
+              <div style={{ fontSize: 9, color: "#999" }}>差分</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: delta != null ? (delta > 0 ? "#b8860b" : "#c0392b") : "#ccc" }}>
+                {delta != null ? (delta > 0 ? `+${delta}` : delta) : "-"}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -322,7 +338,6 @@ export function StatSequentialModal({ cols, currentVal, cap, getVal, onEdit, onS
         </div>
 
         {expLocked ? (
-          // 据え置きモード: コンパクトに現在値を表示
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {expCols.map(c => (
               <div key={c.key} style={{ textAlign: "center", minWidth: 44 }}>
@@ -334,7 +349,6 @@ export function StatSequentialModal({ cols, currentVal, cap, getVal, onEdit, onS
             ))}
           </div>
         ) : (
-          // 編集モード: 各経験値を入力
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {expCols.map(c => (
               <div key={c.key} style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -346,7 +360,7 @@ export function StatSequentialModal({ cols, currentVal, cap, getVal, onEdit, onS
         )}
 
         <div style={{ fontSize: 9, color: "#aaa", marginTop: 4 }}>
-          経験点テーブルが変わったら「据え置き中」を押して編集
+          テーブルが変わったら「据え置き中」を押して編集
         </div>
       </div>
 
@@ -356,11 +370,12 @@ export function StatSequentialModal({ cols, currentVal, cap, getVal, onEdit, onS
           flex: 1, padding: "14px 0", borderRadius: 10, border: "2px solid #d5c89c",
           background: "#fff", color: "#5a4010", fontSize: 14, fontWeight: 700, cursor: "pointer",
         }}>保存して閉じる</button>
-        <button onClick={applyAndNext} disabled={val >= cap} style={{
+        <button onClick={applyAndNext} disabled={val >= cap || delta == null} style={{
           flex: 1, padding: "14px 0", borderRadius: 10, border: "none",
-          background: val < cap ? "linear-gradient(180deg,#f0dca0,#c8a020)" : "#e0e0d8",
-          color: val < cap ? "#5a4010" : "#bbb", fontSize: 14, fontWeight: 700,
-          cursor: val < cap ? "pointer" : "default", boxShadow: val < cap ? "0 2px 8px rgba(0,0,0,0.15)" : "none",
+          background: val < cap && delta != null ? "linear-gradient(180deg,#f0dca0,#c8a020)" : "#e0e0d8",
+          color: val < cap && delta != null ? "#5a4010" : "#bbb", fontSize: 14, fontWeight: 700,
+          cursor: val < cap && delta != null ? "pointer" : "default",
+          boxShadow: val < cap && delta != null ? "0 2px 8px rgba(0,0,0,0.15)" : "none",
         }}>次へ →</button>
       </div>
 
@@ -369,8 +384,10 @@ export function StatSequentialModal({ cols, currentVal, cap, getVal, onEdit, onS
         <div style={{ marginTop: 10, borderTop: "1px solid #e0d8c0", paddingTop: 6 }}>
           <div style={{ fontSize: 10, color: "#999", marginBottom: 3 }}>入力済み ({log.length}件)</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
-            {log.map((v, i) => (
-              <span key={i} style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#e8f5e8", color: "#27ae60", fontWeight: 600 }}>{v}</span>
+            {log.map((l, i) => (
+              <span key={i} style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#e8f5e8", color: "#27ae60", fontWeight: 600 }}>
+                {l.v}{l.d != null ? ` (+${l.d})` : ""}
+              </span>
             ))}
           </div>
         </div>
