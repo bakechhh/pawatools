@@ -64,6 +64,26 @@ CELL_EDGES = [162, 236, 309, 383, 456, 530]  # 5セルの境界
 EXP_LABELS = ['exp_kinryoku', 'exp_binsoku', 'exp_gijutsu', 'exp_chiryoku', 'exp_seishin']
 EXP_LABELS_JA = ['筋力', '敏捷', '技術', '知力', '精神']
 
+# キャリブレーション設定ファイル
+CUSTOM_REGIONS_PATH = Path(__file__).parent / "ocr_regions.json"
+_custom_regions = None
+
+def load_custom_regions():
+    """ocr_calibrate.py で保存した座標設定を読み込み"""
+    global _custom_regions
+    if _custom_regions is not None:
+        return _custom_regions
+    if CUSTOM_REGIONS_PATH.exists():
+        try:
+            with open(CUSTOM_REGIONS_PATH) as f:
+                _custom_regions = json.load(f)
+            print(f"カスタム座標設定を読み込みました: {CUSTOM_REGIONS_PATH.name}")
+            return _custom_regions
+        except:
+            pass
+    _custom_regions = {}
+    return _custom_regions
+
 # ステータス値の左側パネル位置 (各ステータスの現在値)
 # 左側パネルの数字位置 (G 39 のような表示)
 STAT_VALUE_REGIONS = {
@@ -79,9 +99,31 @@ STAT_VALUE_REGIONS = {
 # OCR関数
 # ============================================================
 
+def _ocr_crop(img, x1, y1, x2, y2):
+    """指定座標をクロップしてOCR、数値を返す"""
+    crop = img[y1:y2, x1:x2]
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    big = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+    _, bw = cv2.threshold(big, 150, 255, cv2.THRESH_BINARY_INV)
+    results = get_reader().readtext(bw, detail=0, allowlist='0123456789')
+    if results:
+        try:
+            return int(results[0])
+        except ValueError:
+            pass
+    return None
+
+
 def ocr_score(img):
     """査定スコアを読み取り"""
     h, w = img.shape[:2]
+    custom = load_custom_regions()
+
+    if 'score' in custom:
+        r = custom['score']
+        return _ocr_crop(img, r['x1'], r['y1'], r['x2'], r['y2'])
+
+    # デフォルト座標
     x1, x2, y1, y2 = SCORE_REGION
     crop = img[int(h*y1):int(h*y2), int(w*x1):int(w*x2)]
     results = get_reader().readtext(crop, detail=0, allowlist='0123456789')
@@ -96,17 +138,55 @@ def ocr_score(img):
 def ocr_exp_row(img, stat_key):
     """指定ステータスの経験点コスト5列を読み取り"""
     h, w = img.shape[:2]
+    custom = load_custom_regions()
+
+    # カスタム座標があればセル単位でOCR
+    custom_keys = [f"exp_{k}" for k in ['kinryoku','binsoku','gijutsu','chiryoku','seishin']]
+    if any(k in custom for k in custom_keys):
+        vals = {}
+        for label, ckey in zip(EXP_LABELS, custom_keys):
+            if ckey in custom:
+                r = custom[ckey]
+                v = _ocr_crop(img, r['x1'], r['y1'], r['x2'], r['y2'])
+                vals[label] = v if v is not None else 0
+            else:
+                vals[label] = 0
+        return vals
+
+    # 行全体のカスタム座標があればそれを使用
+    row_key = f"row_{stat_key}"
+    if row_key in custom:
+        r = custom[row_key]
+        strip = img[r['y1']:r['y2'], r['x1']:r['x2']]
+        big = cv2.resize(strip, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        results = get_reader().readtext(big, detail=1, allowlist='0123456789')
+        # 位置ベースで5等分
+        strip_w = r['x2'] - r['x1']
+        cell_w = strip_w / 5
+        vals = [0] * 5
+        for item in results:
+            x_center = (item[0][0][0] + item[0][2][0]) / 2 / 2
+            ci = min(int(x_center / cell_w), 4)
+            try:
+                vals[ci] = int(item[1])
+            except ValueError:
+                pass
+        return dict(zip(EXP_LABELS, vals))
+
+    # デフォルト座標（ハードコード）
+    if stat_key not in STAT_ROWS:
+        return dict(zip(EXP_LABELS, [0]*5))
+
     y1r, y2r = STAT_ROWS[stat_key]
     y1, y2 = int(h * y1r), int(h * y2r)
     strip = img[y1:y2, int(w * STRIP_X[0]):int(w * STRIP_X[1])]
 
-    # 2倍に拡大してOCR精度向上
     big = cv2.resize(strip, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
     results = get_reader().readtext(big, detail=1, allowlist='0123456789')
 
     vals = [0] * 5
     for item in results:
-        x_center = (item[0][0][0] + item[0][2][0]) / 2 / 2  # /2 for upscale
+        x_center = (item[0][0][0] + item[0][2][0]) / 2 / 2
         for ci in range(5):
             if CELL_EDGES[ci] <= x_center < CELL_EDGES[ci + 1]:
                 try:
