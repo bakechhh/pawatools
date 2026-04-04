@@ -217,7 +217,8 @@ export default function SkillsTab() {
   useEffect(() => { Promise.all([GET("skills", "order=sort_order.asc.nullsfirst,category_id,name"), GET("skill_categories", "order=sort_order")]).then(([s, c]) => { setSkills(s); setCats(c); setLd(false); }); }, []);
   useEffect(() => { GET("skill_data", `job_id=eq.${jobId}`).then(rows => { const d = {}; rows.forEach(r => { d[r.skill_id] = r; }); setSData(d); }); }, [jobId]);
 
-  const list = useMemo(() => {
+  // スキルをグループ化（同名スキルの○/◎を統合）
+  const grouped = useMemo(() => {
     let arr = skills;
     if (catF) arr = arr.filter(s => s.category_id === catF);
     if (search) {
@@ -226,8 +227,30 @@ export default function SkillsTab() {
     }
     if (filter === "filled") arr = arr.filter(s => sData[s.id]?.satei != null || isDirty(s.id));
     if (filter === "empty") arr = arr.filter(s => sData[s.id]?.satei == null && !isDirty(s.id));
-    return arr;
+
+    // グループ化: 同じ名前のスキルをまとめる
+    const groups = [];
+    const nameMap = new Map();
+    arr.forEach(s => {
+      const key = s.name;
+      if (nameMap.has(key)) {
+        nameMap.get(key).levels.push(s);
+      } else {
+        const g = { name: key, levels: [s], category_id: s.category_id };
+        nameMap.set(key, g);
+        groups.push(g);
+      }
+    });
+    // レベル内をgrade順（null → ○ → ◎）にソート
+    groups.forEach(g => g.levels.sort((a, b) => {
+      const order = { "": 0, "○": 1, "◎": 2 };
+      return (order[a.grade || ""] ?? 9) - (order[b.grade || ""] ?? 9);
+    }));
+    return groups;
   }, [skills, catF, search, filter, sData, isDirty]);
+
+  // flat list for sequential mode
+  const list = useMemo(() => grouped.flatMap(g => g.levels), [grouped]);
 
   const filledCount = useMemo(() => skills.filter(s => sData[s.id]?.satei != null).length, [skills, sData]);
 
@@ -339,41 +362,64 @@ export default function SkillsTab() {
       <SaveAllBtn count={dirtyIds.size} onClick={doSaveAll} />
       <div style={{ overflowX: "auto", border: "2px solid #d5c89c", borderRadius: 8, background: "#fff" }}>
         <table style={TS.table}><thead><tr>
-          <th style={{ ...TS.th("#666"), minWidth: 110, textAlign: "left", paddingLeft: 8 }}>スキル名</th>
+          <th style={{ ...TS.th("#666"), minWidth: 80, textAlign: "left", paddingLeft: 8 }}>スキル名</th>
+          <th style={{ ...TS.th("#666"), width: 26, fontSize: 10 }}>Lv</th>
           {SKILL_COLS.map(c => <th key={c.key} style={{ ...TS.th(c.color), width: 50 }}>{c.label}</th>)}
           <th style={{ ...TS.th("#2471a3"), width: 26, fontSize: 8 }}>比較</th>
           <th style={{ ...TS.th("#b8860b"), width: 26, fontSize: 9 }}>詳細</th>
           <th style={{ ...TS.th("#27ae60"), width: 42 }}>保存</th>
         </tr></thead><tbody>
-          {list.map((s, i) => {
-            const dirty = isDirty(s.id);
-            const isExp = !!expanded[s.id];
-            const conds = getVal(s.id, "conditions") || sData[s.id]?.conditions || [];
-            const comms = getVal(s.id, "comments") || sData[s.id]?.comments || [];
-            const hasDetail = conds.length > 0 || comms.length > 0;
-            return [
-              <tr key={s.id} style={{ background: dirty ? "#fff8e0" : i % 2 ? "#faf8f2" : "#fff" }}>
-                <td onClick={() => setModalSkill(s)} style={{ ...TS.td(false), fontWeight: 600, fontSize: 12, color: "#333", paddingLeft: 8, borderRight: "2px solid #d5c89c", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}>{s.name}{s.grade || ""}</td>
-                {SKILL_COLS.map(c => {
-                  const v = getVal(s.id, c.key);
-                  const cellDirty = isDirty(s.id) && v !== (sData[s.id]?.[c.key] ?? null);
-                  return <td key={c.key} style={{ ...TS.td(cellDirty), background: cellDirty ? "#fff8e0" : v != null ? c.bg : "transparent" }}>
-                    <NumInput value={v} color={c.color} hasVal={v != null} dirty={cellDirty} onChange={nv => edit(s.id, c.key, nv)} />
-                  </td>;
-                })}
-                <td style={{ ...TS.td(false), textAlign: "center" }}>
-                  <button onClick={() => setCompareSkill(s)} style={{ width: 22, height: 22, borderRadius: 4, border: "1px solid #d5d0c0", cursor: "pointer", fontSize: 9, background: "#eaf2f8", color: "#2471a3", fontWeight: 700 }}>⇔</button>
-                </td>
-                <td style={{ ...TS.td(false), textAlign: "center" }}>
-                  <button onClick={() => setExpanded(p => ({ ...p, [s.id]: !p[s.id] }))} style={{ width: 22, height: 22, borderRadius: 4, border: "1px solid #d5d0c0", cursor: "pointer", fontSize: 10, fontWeight: 700, background: hasDetail ? "#fef3cd" : isExp ? "#eee" : "#fff", color: hasDetail ? "#b8860b" : "#999" }}>{hasDetail ? `${conds.length + comms.length}` : isExp ? "▲" : "▼"}</button>
-                </td>
-                <td style={{ ...TS.td(false), textAlign: "center" }}><SaveBtn active={dirty} saving={saving[s.id]} onClick={() => doSave(s.id)} /></td>
-              </tr>,
-              isExp && <DetailRow key={`${s.id}_d`} colSpan={SKILL_COLS.length + 4}
-                conditions={conds} comments={comms}
-                onAddCondition={c => addCondition(s.id, c)} onAddComment={t => addComment(s.id, t)}
-                onUpdateConditions={arr => updateConditions(s.id, arr)} onUpdateComments={arr => updateComments(s.id, arr)} />,
-            ];
+          {grouped.map((g, gi) => {
+            const multi = g.levels.length > 1;
+            return g.levels.map((s, li) => {
+              const dirty = isDirty(s.id);
+              const isExp = !!expanded[s.id];
+              const conds = getVal(s.id, "conditions") || sData[s.id]?.conditions || [];
+              const comms = getVal(s.id, "comments") || sData[s.id]?.comments || [];
+              const hasDetail = conds.length > 0 || comms.length > 0;
+              const isFirst = li === 0;
+              const isLast = li === g.levels.length - 1;
+              return [
+                <tr key={s.id} style={{ background: dirty ? "#fff8e0" : gi % 2 ? "#faf8f2" : "#fff" }}>
+                  {multi ? (
+                    <>
+                      {isFirst && (
+                        <td rowSpan={g.levels.length} onClick={() => setModalSkill(s)}
+                          style={{ ...TS.td(false), fontWeight: 600, fontSize: 12, color: "#333", paddingLeft: 8, borderRight: "2px solid #d5c89c", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none", verticalAlign: "middle", borderBottom: "none" }}>
+                          {g.name}
+                        </td>
+                      )}
+                      <td style={{ ...TS.td(false), textAlign: "center", fontSize: 11, fontWeight: 600, color: s.grade === "◎" ? "#b8860b" : "#666", padding: "2px 0" }}>
+                        {s.grade}
+                      </td>
+                    </>
+                  ) : (
+                    <td colSpan={2} onClick={() => setModalSkill(s)}
+                      style={{ ...TS.td(false), fontWeight: 600, fontSize: 12, color: "#333", paddingLeft: 8, borderRight: "2px solid #d5c89c", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}>
+                      {g.name}
+                    </td>
+                  )}
+                  {SKILL_COLS.map(c => {
+                    const v = getVal(s.id, c.key);
+                    const cellDirty = isDirty(s.id) && v !== (sData[s.id]?.[c.key] ?? null);
+                    return <td key={c.key} style={{ ...TS.td(cellDirty), background: cellDirty ? "#fff8e0" : v != null ? c.bg : "transparent" }}>
+                      <NumInput value={v} color={c.color} hasVal={v != null} dirty={cellDirty} onChange={nv => edit(s.id, c.key, nv)} />
+                    </td>;
+                  })}
+                  <td style={{ ...TS.td(false), textAlign: "center" }}>
+                    <button onClick={() => setCompareSkill(s)} style={{ width: 22, height: 22, borderRadius: 4, border: "1px solid #d5d0c0", cursor: "pointer", fontSize: 9, background: "#eaf2f8", color: "#2471a3", fontWeight: 700 }}>⇔</button>
+                  </td>
+                  <td style={{ ...TS.td(false), textAlign: "center" }}>
+                    <button onClick={() => setExpanded(p => ({ ...p, [s.id]: !p[s.id] }))} style={{ width: 22, height: 22, borderRadius: 4, border: "1px solid #d5d0c0", cursor: "pointer", fontSize: 10, fontWeight: 700, background: hasDetail ? "#fef3cd" : isExp ? "#eee" : "#fff", color: hasDetail ? "#b8860b" : "#999" }}>{hasDetail ? `${conds.length + comms.length}` : isExp ? "▲" : "▼"}</button>
+                  </td>
+                  <td style={{ ...TS.td(false), textAlign: "center" }}><SaveBtn active={dirty} saving={saving[s.id]} onClick={() => doSave(s.id)} /></td>
+                </tr>,
+                isExp && <DetailRow key={`${s.id}_d`} colSpan={SKILL_COLS.length + 5}
+                  conditions={conds} comments={comms}
+                  onAddCondition={c => addCondition(s.id, c)} onAddComment={t => addComment(s.id, t)}
+                  onUpdateConditions={arr => updateConditions(s.id, arr)} onUpdateComments={arr => updateComments(s.id, arr)} />,
+              ];
+            });
           })}
         </tbody></table>
       </div>

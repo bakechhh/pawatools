@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { GET, INSERT, UPSERT } from "../supabase.js";
 import { JOBS, JC, EL } from "../constants.js";
 import { Pill, Badge, Toast } from "../components/UI.jsx";
@@ -19,7 +19,7 @@ const selectStyle = { ...inputStyle, appearance: "auto" };
 const labelStyle = { fontSize: 11, fontWeight: 700, color: "#5a4010", marginBottom: 3, display: "block" };
 const btnStyle = (a) => ({ padding: "10px 24px", borderRadius: 8, border: "none", cursor: a ? "pointer" : "default", background: a ? "linear-gradient(180deg,#f0dca0,#c8a020)" : "#e0e0d8", color: a ? "#5a4010" : "#bbb", fontSize: 14, fontWeight: 700, width: "100%" });
 
-function EditableItem({ item, fields, onSave, onDelete, sortButtons, dragHandlers }) {
+function EditableItem({ item, fields, onSave, onDelete }) {
   const [editing, setEditing] = useState(false);
   const [vals, setVals] = useState({});
 
@@ -47,12 +47,7 @@ function EditableItem({ item, fields, onSave, onDelete, sortButtons, dragHandler
       </div>
     </div>
   ) : (
-    <div {...(dragHandlers || {})} style={{ display: "flex", alignItems: "center", padding: "4px 8px", borderBottom: "1px solid #eee", gap: 4, ...(dragHandlers?.style || {}) }}>
-      {dragHandlers && (
-        <div style={{ cursor: "grab", padding: "2px 4px", color: "#bbb", fontSize: 14, touchAction: "none", userSelect: "none" }}
-          onMouseDown={dragHandlers.onGripDown} onTouchStart={dragHandlers.onGripDown}>☰</div>
-      )}
-      {sortButtons && <div style={{ display: "flex", gap: 2, marginRight: 4 }}>{sortButtons}</div>}
+    <div style={{ display: "flex", alignItems: "center", padding: "4px 8px", borderBottom: "1px solid #eee", gap: 4 }}>
       <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
         {item._display}
       </div>
@@ -62,66 +57,155 @@ function EditableItem({ item, fields, onSave, onDelete, sortButtons, dragHandler
   );
 }
 
-// ドラッグ並べ替えフック
-function useDragSort(items, onReorder) {
-  const [dragIdx, setDragIdx] = useState(null);
-  const [overIdx, setOverIdx] = useState(null);
-  const listRef = useRef(null);
-  const stateRef = useRef({ dragIdx: null, overIdx: null });
+// 複数選択 + 挿入先指定で一括移動できるリスト
+function MultiSortList({ items, renderItem, onBulkMove }) {
+  const [selected, setSelected] = useState(new Set());
+  const selCount = selected.size;
 
-  const getHandlers = useCallback((idx) => {
-    return {
-      style: {
-        background: dragIdx === idx ? "#fff8e0" : overIdx === idx ? "#eaf2f8" : undefined,
-        transition: "background 0.1s",
-      },
-      onGripDown: (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setDragIdx(idx);
-        stateRef.current.dragIdx = idx;
-        stateRef.current.overIdx = idx;
+  function toggle(id) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+  function selectAll() { setSelected(new Set(items.map(i => i.id))); }
+  function clearSel() { setSelected(new Set()); }
 
-        const onMove = (ev) => {
-          ev.preventDefault();
-          const y = ev.touches ? ev.touches[0].clientY : ev.clientY;
-          if (!listRef.current) return;
-          const children = listRef.current.children;
-          for (let i = 0; i < children.length; i++) {
-            const rect = children[i].getBoundingClientRect();
-            if (y >= rect.top && y <= rect.bottom) {
-              stateRef.current.overIdx = i;
-              setOverIdx(i);
-              break;
-            }
-          }
-        };
+  function insertAt(targetIdx) {
+    // 選択アイテムを取り除いて targetIdx の位置に挿入
+    const selIds = selected;
+    const kept = [];
+    const moved = [];
+    items.forEach(item => {
+      if (selIds.has(item.id)) moved.push(item);
+      else kept.push(item);
+    });
+    // targetIdx は kept 配列上のインデックス（挿入先）
+    const result = [...kept.slice(0, targetIdx), ...moved, ...kept.slice(targetIdx)];
+    onBulkMove(result);
+    clearSel();
+  }
 
-        const onUp = () => {
-          const from = stateRef.current.dragIdx;
-          const to = stateRef.current.overIdx;
-          if (from != null && to != null && from !== to) {
-            onReorder(from, to);
-          }
-          setDragIdx(null);
-          setOverIdx(null);
-          stateRef.current.dragIdx = null;
-          stateRef.current.overIdx = null;
-          document.removeEventListener("mousemove", onMove);
-          document.removeEventListener("mouseup", onUp);
-          document.removeEventListener("touchmove", onMove);
-          document.removeEventListener("touchend", onUp);
-        };
+  const selStyle = { width: 18, height: 18, cursor: "pointer", accentColor: "#c8a020" };
+  const insertBtnStyle = {
+    width: "100%", padding: "2px 0", border: "none", cursor: "pointer",
+    background: "linear-gradient(90deg, transparent 10%, #c8a02066 50%, transparent 90%)",
+    color: "#8b7340", fontSize: 10, fontWeight: 700, borderRadius: 2,
+    opacity: 0.7, transition: "opacity 0.1s",
+  };
 
-        document.addEventListener("mousemove", onMove);
-        document.addEventListener("mouseup", onUp);
-        document.addEventListener("touchmove", onMove, { passive: false });
-        document.addEventListener("touchend", onUp);
-      },
-    };
-  }, [dragIdx, overIdx, onReorder]);
+  // 非選択アイテムのリストを作り、間にinsertボタンを配置
+  const nonSelected = items.filter(i => !selected.has(i.id));
 
-  return { getHandlers, listRef };
+  return (
+    <div>
+      {selCount > 0 && (
+        <div style={{
+          display: "flex", gap: 6, alignItems: "center", padding: "6px 8px", marginBottom: 4,
+          background: "#fff8e0", border: "1px solid #d5c89c", borderRadius: 6,
+        }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: "#5a4010" }}>{selCount}件選択中</span>
+          <button onClick={selectAll} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 3, border: "1px solid #d5d0c0", background: "#fff", color: "#888", cursor: "pointer" }}>全選択</button>
+          <button onClick={clearSel} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 3, border: "1px solid #d5d0c0", background: "#fff", color: "#888", cursor: "pointer" }}>解除</button>
+          <span style={{ fontSize: 10, color: "#888" }}>↓ 挿入先をタップ</span>
+        </div>
+      )}
+      <div style={{ maxHeight: 400, overflowY: "auto" }}>
+        {/* 先頭に挿入ボタン */}
+        {selCount > 0 && (
+          <button onClick={() => insertAt(0)} style={insertBtnStyle}
+            onMouseOver={e => e.currentTarget.style.opacity = 1} onMouseOut={e => e.currentTarget.style.opacity = 0.7}>
+            ▶ ここに挿入
+          </button>
+        )}
+        {items.map((item, idx) => {
+          const isSel = selected.has(item.id);
+          // 非選択アイテムの後にのみinsertボタンを表示
+          const nonSelIdx = nonSelected.indexOf(item);
+          return (
+            <div key={item.id}>
+              <div style={{
+                display: "flex", alignItems: "center", gap: 4,
+                background: isSel ? "#fff8e0" : undefined,
+                borderLeft: isSel ? "3px solid #c8a020" : "3px solid transparent",
+              }}>
+                <input type="checkbox" checked={isSel} onChange={() => toggle(item.id)} style={selStyle} />
+                <div style={{ flex: 1 }}>{renderItem(item, idx)}</div>
+              </div>
+              {selCount > 0 && !isSel && (
+                <button onClick={() => insertAt(nonSelIdx + 1)} style={insertBtnStyle}
+                  onMouseOver={e => e.currentTarget.style.opacity = 1} onMouseOut={e => e.currentTarget.style.opacity = 0.7}>
+                  ▶ ここに挿入
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// カテゴリフィルタ付き並べ替え可能リスト
+function SortableSkillList({ skills, cats, onBulkReorder, flash, loadExisting }) {
+  const [catFilter, setCatFilter] = useState(0);
+  const [search, setSearch] = useState("");
+
+  const filtered = skills.filter(s => {
+    if (catFilter && s.category_id !== catFilter) return false;
+    if (search && !s.name.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  function handleBulkMove(newFiltered) {
+    // filteredの新しい並び順をskills全体に反映
+    if (catFilter || search) {
+      // フィルタ中: filteredのアイテムだけを新しい順序で差し替え
+      const filteredIds = new Set(filtered.map(s => s.id));
+      const nonFiltered = skills.filter(s => !filteredIds.has(s.id));
+      // filtered items の元の最初の位置に挿入
+      const firstIdx = skills.findIndex(s => filteredIds.has(s.id));
+      const result = [...nonFiltered.slice(0, firstIdx >= 0 ? skills.slice(0, firstIdx).filter(s => !filteredIds.has(s.id)).length : 0), ...newFiltered, ...nonFiltered.slice(firstIdx >= 0 ? skills.slice(0, firstIdx).filter(s => !filteredIds.has(s.id)).length : 0)];
+      // Simpler: rebuild maintaining relative positions
+      const orderMap = new Map();
+      newFiltered.forEach((s, i) => orderMap.set(s.id, i));
+      const fList = newFiltered.slice();
+      let fi = 0;
+      const rebuilt = skills.map(s => filteredIds.has(s.id) ? fList[fi++] : s);
+      onBulkReorder(rebuilt);
+    } else {
+      onBulkReorder(newFiltered);
+    }
+  }
+
+  return (
+    <>
+      <div style={{ display: "flex", gap: 4, marginBottom: 6, flexWrap: "wrap", alignItems: "center" }}>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="検索..."
+          style={{ ...inputStyle, flex: 1, minWidth: 100, fontSize: 11, padding: "4px 8px" }} />
+        <Pill active={catFilter === 0} onClick={() => setCatFilter(0)}>全て</Pill>
+        {cats.map(c => <Pill key={c.id} active={catFilter === c.id} onClick={() => setCatFilter(c.id)}>{c.name}</Pill>)}
+      </div>
+      <div style={{ fontSize: 10, color: "#aaa", marginBottom: 4 }}>チェックで選択 → 挿入先をタップ（{filtered.length}件表示）</div>
+      <MultiSortList
+        items={filtered}
+        onBulkMove={handleBulkMove}
+        renderItem={(s) => (
+          <EditableItem item={{ ...s, _display: <><span style={{ fontWeight: 600 }}>{s.name}{s.grade || ""}</span><span style={{ fontSize: 10, color: "#aaa", marginLeft: 4 }}>{cats.find(c => c.id === s.category_id)?.name}</span></> }}
+            fields={[
+              { key: "name", label: "名前", flex: 2 },
+              { key: "grade", label: "等級", type: "select", options: [{ value: "", label: "なし" }, { value: "○", label: "○" }, { value: "◎", label: "◎" }] },
+              { key: "category_id", label: "カテゴリ", type: "select", options: cats.map(c => ({ value: String(c.id), label: c.name })) },
+              { key: "notes", label: "メモ" },
+            ]}
+            onSave={async (vals) => { const r = await PATCH("skills", s.id, { ...vals, category_id: Number(vals.category_id), grade: vals.grade || null, notes: vals.notes || null }); if (r) { flash("✓ 更新"); loadExisting(); } else flash("更新失敗"); }}
+            onDelete={async () => { if (await DEL("skills", s.id)) { flash("✓ 削除"); loadExisting(); } else flash("削除失敗"); }}
+          />
+        )}
+      />
+    </>
+  );
 }
 
 export default function AdminTab() {
@@ -135,6 +219,7 @@ export default function AdminTab() {
   const [skName, setSkName] = useState(""); const [skGrade, setSkGrade] = useState(""); const [skCatId, setSkCatId] = useState(""); const [skNote, setSkNote] = useState("");
   const [gsName, setGsName] = useState(""); const [gsSource, setGsSource] = useState("event_chara"); const [gsNote, setGsNote] = useState("");
   const [smName, setSmName] = useState(""); const [smJobId, setSmJobId] = useState(""); const [smElement, setSmElement] = useState(""); const [smSource, setSmSource] = useState(""); const [smNote, setSmNote] = useState("");
+  const [catName, setCatName] = useState("");
 
   const [existingSkills, setExistingSkills] = useState([]);
   const [existingGold, setExistingGold] = useState([]);
@@ -146,27 +231,15 @@ export default function AdminTab() {
   async function loadExisting() {
     if (mode === "skill") setExistingSkills(await GET("skills", "order=sort_order.asc.nullsfirst,category_id,name"));
     else if (mode === "gold") setExistingGold(await GET("gold_skills", "order=name"));
-    else setExistingSpecial(await GET("special_moves", "order=job_id,name"));
+    else if (mode === "special") setExistingSpecial(await GET("special_moves", "order=job_id,name"));
   }
+  async function loadCats() { setCats(await GET("skill_categories", "order=sort_order")); }
 
   const [orderDirty, setOrderDirty] = useState(false);
   const [savingOrder, setSavingOrder] = useState(false);
 
-  function moveSkill(idx, dir) {
-    const arr = [...existingSkills];
-    const swapIdx = idx + dir;
-    if (swapIdx < 0 || swapIdx >= arr.length) return;
-    [arr[idx], arr[swapIdx]] = [arr[swapIdx], arr[idx]];
-    setExistingSkills(arr);
-    setOrderDirty(true);
-  }
-
-  function reorderSkill(fromIdx, toIdx) {
-    if (fromIdx === toIdx) return;
-    const arr = [...existingSkills];
-    const [moved] = arr.splice(fromIdx, 1);
-    arr.splice(toIdx, 0, moved);
-    setExistingSkills(arr);
+  function bulkReorderSkills(newArr) {
+    setExistingSkills(newArr);
     setOrderDirty(true);
   }
 
@@ -179,7 +252,18 @@ export default function AdminTab() {
     flash("✓ 並び順を保存しました");
   }
 
-  const { getHandlers: getDragHandlers, listRef: skillListRef } = useDragSort(existingSkills, reorderSkill);
+  // カテゴリ並べ替え
+  const [catOrderDirty, setCatOrderDirty] = useState(false);
+  function bulkReorderCats(newArr) {
+    setCats(newArr);
+    setCatOrderDirty(true);
+  }
+  async function saveCatOrder() {
+    const updates = cats.map((c, i) => PATCH("skill_categories", c.id, { sort_order: (i + 1) * 10 }));
+    await Promise.all(updates);
+    setCatOrderDirty(false);
+    flash("✓ カテゴリ並び順を保存");
+  }
 
   function tryAuth() {
     if (!ADMIN_PASS) { flash("管理パスワードが未設定"); return; }
@@ -190,10 +274,11 @@ export default function AdminTab() {
   async function addSkill() { if (!skName.trim() || !skCatId) { flash("名前とカテゴリは必須"); return; } const maxOrder = existingSkills.reduce((m, s) => Math.max(m, s.sort_order ?? 0), 0); const res = await INSERT("skills", { name: skName.trim(), grade: skGrade || null, category_id: Number(skCatId), notes: skNote || null, sort_order: maxOrder + 10 }); if (res?.length) { flash(`✓「${skName}」追加`); setSkName(""); setSkGrade(""); setSkNote(""); loadExisting(); } else flash("追加失敗"); }
   async function addGold() { if (!gsName.trim()) { flash("名前は必須"); return; } const res = await INSERT("gold_skills", { name: gsName.trim(), obtain_source: gsSource || null, notes: gsNote || null }); if (res?.length) { flash(`✓「${gsName}」追加`); setGsName(""); setGsNote(""); loadExisting(); } else flash("追加失敗"); }
   async function addSpecial() { if (!smName.trim() || !smJobId) { flash("名前とジョブは必須"); return; } const res = await INSERT("special_moves", { name: smName.trim(), job_id: Number(smJobId), element: smElement || null, obtain_source: smSource || null, notes: smNote || null }); if (res?.length) { flash(`✓「${smName}」追加`); setSmName(""); setSmElement(""); setSmSource(""); setSmNote(""); loadExisting(); } else flash("追加失敗"); }
+  async function addCat() { if (!catName.trim()) { flash("カテゴリ名は必須"); return; } const maxOrder = cats.reduce((m, c) => Math.max(m, c.sort_order ?? 0), 0); const res = await INSERT("skill_categories", { name: catName.trim(), sort_order: maxOrder + 10 }); if (res?.length) { flash(`✓「${catName}」追加`); setCatName(""); loadCats(); } else flash("追加失敗"); }
 
   if (!authed) return (
     <div style={{ padding: "40px 20px", textAlign: "center" }}>
-      <div style={{ fontSize: 16, fontWeight: 700, color: "#5a4010", marginBottom: 16 }}>🔒 管理者ログイン</div>
+      <div style={{ fontSize: 16, fontWeight: 700, color: "#5a4010", marginBottom: 16 }}>管理者ログイン</div>
       <div style={{ fontSize: 12, color: "#888", marginBottom: 16 }}>マスターデータの管理には管理パスワードが必要です</div>
       <div style={{ maxWidth: 280, margin: "0 auto" }}>
         <input type="password" value={pass} onChange={e => { setPass(e.target.value); setPassErr(false); }} onKeyDown={e => { if (e.key === "Enter") tryAuth(); }} placeholder="管理パスワード"
@@ -207,13 +292,14 @@ export default function AdminTab() {
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: "#5a4010" }}>🔓 マスターデータ管理</div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "#5a4010" }}>マスターデータ管理</div>
         <button onClick={() => setAuthed(false)} style={{ fontSize: 11, padding: "3px 10px", borderRadius: 4, border: "1px solid #d5d0c0", background: "#faf8f2", color: "#888", cursor: "pointer" }}>ログアウト</button>
       </div>
       <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
         <Pill active={mode === "skill"} onClick={() => setMode("skill")}>スキル</Pill>
         <Pill active={mode === "gold"} onClick={() => setMode("gold")}>金特</Pill>
         <Pill active={mode === "special"} onClick={() => setMode("special")}>必殺技</Pill>
+        <Pill active={mode === "category"} onClick={() => setMode("category")}>カテゴリ</Pill>
       </div>
 
       {/* スキル */}
@@ -239,25 +325,49 @@ export default function AdminTab() {
               }}>{savingOrder ? "保存中..." : "並び順を保存"}</button>
             )}
           </div>
-          <div ref={skillListRef} style={{ maxHeight: 400, overflowY: "auto", marginTop: 4 }}>
-            {existingSkills.map((s, idx) => (
-              <EditableItem key={s.id} item={{ ...s, _display: <><span style={{ fontWeight: 600 }}>{s.name}{s.grade || ""}</span><span style={{ fontSize: 10, color: "#aaa", marginLeft: 4 }}>{cats.find(c => c.id === s.category_id)?.name}</span></> }}
-                dragHandlers={getDragHandlers(idx)}
-                sortButtons={<>
-                  <button onClick={() => moveSkill(idx, -1)} disabled={idx === 0} style={{ fontSize: 10, padding: "2px 5px", borderRadius: 3, border: "1px solid #d5d0c0", background: idx === 0 ? "#eee" : "#fff", color: idx === 0 ? "#ccc" : "#666", cursor: idx === 0 ? "default" : "pointer", lineHeight: 1 }}>▲</button>
-                  <button onClick={() => moveSkill(idx, 1)} disabled={idx === existingSkills.length - 1} style={{ fontSize: 10, padding: "2px 5px", borderRadius: 3, border: "1px solid #d5d0c0", background: idx === existingSkills.length - 1 ? "#eee" : "#fff", color: idx === existingSkills.length - 1 ? "#ccc" : "#666", cursor: idx === existingSkills.length - 1 ? "default" : "pointer", lineHeight: 1 }}>▼</button>
-                </>}
-                fields={[
-                  { key: "name", label: "名前", flex: 2 },
-                  { key: "grade", label: "等級", type: "select", options: [{ value: "", label: "なし" }, { value: "○", label: "○" }, { value: "◎", label: "◎" }] },
-                  { key: "category_id", label: "カテゴリ", type: "select", options: cats.map(c => ({ value: String(c.id), label: c.name })) },
-                  { key: "notes", label: "メモ" },
-                ]}
-                onSave={async (vals) => { const r = await PATCH("skills", s.id, { ...vals, category_id: Number(vals.category_id), grade: vals.grade || null, notes: vals.notes || null }); if (r) { flash("✓ 更新"); loadExisting(); } else flash("更新失敗"); }}
-                onDelete={async () => { if (await DEL("skills", s.id)) { flash("✓ 削除"); loadExisting(); } else flash("削除失敗"); }}
-              />
-            ))}
+          <SortableSkillList
+            skills={existingSkills} cats={cats}
+            onBulkReorder={bulkReorderSkills} flash={flash} loadExisting={loadExisting}
+          />
+        </div>
+      )}
+
+      {/* カテゴリ */}
+      {mode === "category" && (
+        <div style={{ background: "#faf8f2", borderRadius: 8, padding: 14, border: "1px solid #e0d8c0", marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#5a4010", marginBottom: 10 }}>カテゴリ管理</div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            <input value={catName} onChange={e => setCatName(e.target.value)} placeholder="新しいカテゴリ名" style={{ ...inputStyle, flex: 1 }}
+              onKeyDown={e => { if (e.key === "Enter") addCat(); }} />
+            <button onClick={addCat} style={{ ...btnStyle(!!catName.trim()), width: "auto", padding: "8px 20px" }}>追加</button>
           </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <span style={{ fontSize: 11, color: "#888", fontWeight: 700 }}>登録済み ({cats.length}件)</span>
+            {catOrderDirty && (
+              <button onClick={saveCatOrder} style={{
+                padding: "4px 14px", borderRadius: 6, border: "none",
+                background: "linear-gradient(180deg,#f0dca0,#c8a020)",
+                color: "#5a4010", fontSize: 11, fontWeight: 700, cursor: "pointer",
+              }}>並び順を保存</button>
+            )}
+          </div>
+          <MultiSortList
+            items={cats}
+            onBulkMove={bulkReorderCats}
+            renderItem={(c) => (
+              <EditableItem
+                item={{ ...c, _display: <span style={{ fontWeight: 600, color: "#5a4010" }}>{c.name}</span> }}
+                fields={[{ key: "name", label: "カテゴリ名", flex: 2 }]}
+                onSave={async (vals) => {
+                  const r = await PATCH("skill_categories", c.id, { name: vals.name });
+                  if (r) { flash("✓ 更新"); loadCats(); } else flash("更新���敗");
+                }}
+                onDelete={async () => {
+                  if (await DEL("skill_categories", c.id)) { flash("✓ 削除"); loadCats(); } else flash("削除失敗");
+                }}
+              />
+            )}
+          />
         </div>
       )}
 
