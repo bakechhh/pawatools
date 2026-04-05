@@ -223,10 +223,10 @@ export default function BaseStatTab() {
     });
   }, [jobId, statKey]);
 
-  const doSave = useCallback(async (val) => {
+  const doSave = useCallback(async (val, forcedChanges = null) => {
     setSaving(p => ({ ...p, [val]: true }));
     const ex = saved[val] || {};
-    const changes = getEditsFor(val);
+    const changes = forcedChanges ?? getEditsFor(val);
     const payload = {
       job_id: jobId, stat_type: statKey, stat_value: val,
       satei_delta: ex.satei_delta ?? null,

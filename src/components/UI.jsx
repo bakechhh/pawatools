@@ -162,6 +162,15 @@ export function SkillInputModal({ skill, cols, getVal, onEdit, onClose, onNext, 
     onClose();
   }
 
+  function getPendingChanges() {
+    const changes = {};
+    cols.forEach(c => {
+      const val = mode === "diff" ? getDiff(c.key) : (direct[c.key] ?? null);
+      if (val != null) changes[c.key] = val;
+    });
+    return changes;
+  }
+
   return (
     <ModalShell onClose={onClose}>
       <ModalHeader title={`${skill.name}${skill.grade || ""}${seqMode ? ` (${seqCurrent}/${seqTotal})` : ""}`} onClose={onClose} />
@@ -224,11 +233,9 @@ export function SkillInputModal({ skill, cols, getVal, onEdit, onClose, onNext, 
             background: "#fff", color: "#5a4010", fontSize: 14, fontWeight: 700, cursor: "pointer",
           }}>反映して閉じる</button>
           <button onClick={() => {
-            cols.forEach(c => {
-              const val = mode === "diff" ? getDiff(c.key) : (direct[c.key] ?? null);
-              if (val != null) onEdit(c.key, val);
-            });
-            onNext();
+            const changes = getPendingChanges();
+            Object.entries(changes).forEach(([key, val]) => onEdit(key, val));
+            onNext(changes);
           }} style={{
             flex: 1, padding: "14px 0", borderRadius: 10, border: "none",
             background: "linear-gradient(180deg,#f0dca0,#c8a020)", color: "#5a4010",
@@ -263,7 +270,12 @@ export function StatSequentialModal({ cols, currentVal, cap, getVal, onEdit, onS
     expCols.forEach(c => {
       if (exp[c.key] != null) onEdit(val, c.key, exp[c.key]);
     });
-    onSave(val);
+    const changes = {};
+    if (delta != null) changes.satei_delta = delta;
+    expCols.forEach(c => {
+      if (exp[c.key] != null) changes[c.key] = exp[c.key];
+    });
+    onSave(val, changes);
     setLog(prev => [...prev, { v: val, d: delta }]);
 
     if (val < cap) {
@@ -278,7 +290,12 @@ export function StatSequentialModal({ cols, currentVal, cap, getVal, onEdit, onS
     expCols.forEach(c => {
       if (exp[c.key] != null) onEdit(val, c.key, exp[c.key]);
     });
-    onSave(val);
+    const changes = {};
+    if (delta != null) changes.satei_delta = delta;
+    expCols.forEach(c => {
+      if (exp[c.key] != null) changes[c.key] = exp[c.key];
+    });
+    onSave(val, changes);
     onClose();
   }
 

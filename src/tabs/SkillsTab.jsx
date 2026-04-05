@@ -5,6 +5,33 @@ import { JOBS, SKILL_COLS, JC } from "../constants.js";
 import { Pill, Toast, SaveBtn, SaveAllBtn, NumInput, DetailRow, SkillInputModal, BulkImportPanel, TS } from "../components/UI.jsx";
 import { useEditable } from "../hooks/useEditable.js";
 
+const SKILL_COPY_EXP_KEYS = ["exp_kinryoku", "exp_binsoku", "exp_gijutsu", "exp_chiryoku", "exp_seishin"];
+
+function hasCopyableSkillData(data) {
+  if (!data) return false;
+  if (SKILL_COPY_EXP_KEYS.some(key => (data[key] ?? 0) !== 0)) return true;
+  if (typeof data.notes === "string" && data.notes.trim()) return true;
+  if (Array.isArray(data.comments) && data.comments.length > 0) return true;
+  if (Array.isArray(data.conditions) && data.conditions.length > 0) return true;
+  return false;
+}
+
+function buildSkillCopyPayload(skillId, jobId, data) {
+  const payload = {
+    skill_id: Number(skillId),
+    job_id: jobId,
+  };
+
+  SKILL_COPY_EXP_KEYS.forEach(key => {
+    if ((data[key] ?? 0) !== 0) payload[key] = data[key];
+  });
+  if (typeof data.notes === "string" && data.notes.trim()) payload.notes = data.notes;
+  if (Array.isArray(data.comments) && data.comments.length > 0) payload.comments = data.comments;
+  if (Array.isArray(data.conditions) && data.conditions.length > 0) payload.conditions = data.conditions;
+
+  return payload;
+}
+
 // スキル集計パネル
 function SkillCalcPanel({ list, sData, getVal }) {
   const [open, setOpen] = useState(false);
@@ -111,30 +138,44 @@ function JobCompareModal({ skill, onClose }) {
 }
 
 // 役職間コピーモーダル
-function RoleCopyModal({ jobId, sData, onClose, onDone }) {
+function RoleCopyModal({ jobId, skills, sData, onClose, onDone }) {
   const [targets, setTargets] = useState({});
+  const [selectedSkills, setSelectedSkills] = useState({});
   const [copying, setCopying] = useState(false);
 
-  const filledSkills = Object.entries(sData).filter(([, d]) => d?.satei != null);
+  const filledSkills = useMemo(() => (
+    skills
+      .filter(skill => hasCopyableSkillData(sData[skill.id]))
+      .map(skill => ({ skill, data: sData[skill.id] }))
+  ), [skills, sData]);
   const currentJob = JOBS.find(j => j.id === jobId);
   const otherJobs = JOBS.filter(j => j.id !== jobId);
 
   const toggle = (id) => setTargets(p => ({ ...p, [id]: !p[id] }));
+  const toggleSkill = (id) => setSelectedSkills(p => ({ ...p, [id]: !p[id] }));
   const selectedCount = Object.values(targets).filter(Boolean).length;
+  const selectedSkillCount = Object.values(selectedSkills).filter(Boolean).length;
+
+  useEffect(() => {
+    const defaults = {};
+    filledSkills.forEach(({ skill }) => { defaults[skill.id] = true; });
+    setSelectedSkills(defaults);
+  }, [filledSkills]);
+
+  function selectAllSkills(nextValue) {
+    const next = {};
+    filledSkills.forEach(({ skill }) => { next[skill.id] = nextValue; });
+    setSelectedSkills(next);
+  }
 
   async function doCopy() {
     setCopying(true);
     let count = 0;
-    for (const [skillId, data] of filledSkills) {
+    for (const { skill, data } of filledSkills) {
+      if (!selectedSkills[skill.id]) continue;
       for (const job of otherJobs) {
         if (!targets[job.id]) continue;
-        const payload = {
-          skill_id: Number(skillId), job_id: job.id,
-          satei: data.satei, exp_kinryoku: data.exp_kinryoku || 0,
-          exp_binsoku: data.exp_binsoku || 0, exp_gijutsu: data.exp_gijutsu || 0,
-          exp_chiryoku: data.exp_chiryoku || 0, exp_seishin: data.exp_seishin || 0,
-          notes: data.notes || null, comments: data.comments || [], conditions: data.conditions || [],
-        };
+        const payload = buildSkillCopyPayload(skill.id, job.id, data);
         await UPSERT("skill_data", payload);
         count++;
       }
@@ -160,6 +201,7 @@ function RoleCopyModal({ jobId, sData, onClose, onDone }) {
         <div style={{ fontSize: 12, color: "#8b7340", marginBottom: 10 }}>
           <span style={{ fontWeight: 700, color: JC[currentJob.name] }}>{currentJob.name}</span> のスキルデータ
           <span style={{ fontWeight: 700 }}> {filledSkills.length}件</span> を選択した役職にコピーします。
+          <div style={{ fontSize: 11, color: "#999", marginTop: 4 }}>査定値はコピーせず、経験点・条件・コメントのみ反映します。</div>
         </div>
 
         {filledSkills.length === 0 ? (
@@ -178,13 +220,48 @@ function RoleCopyModal({ jobId, sData, onClose, onDone }) {
                 </label>
               ))}
             </div>
-            <button onClick={doCopy} disabled={selectedCount === 0 || copying} style={{
+            <div style={{ background: "#fff", border: "1px solid #e0d8c0", borderRadius: 8, padding: 10, marginBottom: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#5a4010" }}>コピーするスキル</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => selectAllSkills(true)} style={{
+                    padding: "4px 8px", borderRadius: 5, border: "1px solid #d5d0c0",
+                    background: "#faf8f2", color: "#8b7340", fontSize: 10, fontWeight: 700, cursor: "pointer",
+                  }}>全選択</button>
+                  <button onClick={() => selectAllSkills(false)} style={{
+                    padding: "4px 8px", borderRadius: 5, border: "1px solid #d5d0c0",
+                    background: "#fff", color: "#999", fontSize: 10, fontWeight: 700, cursor: "pointer",
+                  }}>解除</button>
+                </div>
+              </div>
+              <div style={{ maxHeight: 220, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+                {filledSkills.map(({ skill, data }) => (
+                  <label key={skill.id} style={{
+                    display: "flex", alignItems: "center", gap: 8, padding: "7px 8px",
+                    background: selectedSkills[skill.id] ? "#fff8e0" : "#fafafa",
+                    border: `1px solid ${selectedSkills[skill.id] ? "#c8a020" : "#e5e0d0"}`,
+                    borderRadius: 6, cursor: "pointer",
+                  }}>
+                    <input type="checkbox" checked={!!selectedSkills[skill.id]} onChange={() => toggleSkill(skill.id)} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#333", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {skill.name}{skill.grade || ""}
+                      </div>
+                      <div style={{ fontSize: 10, color: "#999" }}>
+                        {[data.exp_kinryoku, data.exp_binsoku, data.exp_gijutsu, data.exp_chiryoku, data.exp_seishin].map(v => v ?? 0).join(" / ")}
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <button onClick={doCopy} disabled={selectedCount === 0 || selectedSkillCount === 0 || copying} style={{
               width: "100%", padding: "10px 0", borderRadius: 8, border: "none",
-              background: selectedCount > 0 && !copying ? "linear-gradient(180deg,#f0dca0,#c8a020)" : "#ddd",
-              color: selectedCount > 0 && !copying ? "#5a4010" : "#999",
-              fontSize: 13, fontWeight: 700, cursor: selectedCount > 0 && !copying ? "pointer" : "default",
+              background: selectedCount > 0 && selectedSkillCount > 0 && !copying ? "linear-gradient(180deg,#f0dca0,#c8a020)" : "#ddd",
+              color: selectedCount > 0 && selectedSkillCount > 0 && !copying ? "#5a4010" : "#999",
+              fontSize: 13, fontWeight: 700, cursor: selectedCount > 0 && selectedSkillCount > 0 && !copying ? "pointer" : "default",
             }}>
-              {copying ? "コピー中..." : `${selectedCount}役職にコピー (${filledSkills.length * selectedCount}件)`}
+              {copying ? "コピー中..." : `${selectedSkillCount}スキルを${selectedCount}役職にコピー (${selectedSkillCount * selectedCount}件)`}
             </button>
           </>
         )}
@@ -254,10 +331,10 @@ export default function SkillsTab() {
 
   const filledCount = useMemo(() => skills.filter(s => sData[s.id]?.satei != null).length, [skills, sData]);
 
-  const doSave = useCallback(async (sid) => {
+  const doSave = useCallback(async (sid, forcedChanges = null) => {
     setSaving(p => ({ ...p, [sid]: true }));
     const ex = sData[sid] || {};
-    const changes = getEditsFor(sid);
+    const changes = forcedChanges ?? getEditsFor(sid);
     const p = {
       skill_id: sid, job_id: jobId,
       satei: ex.satei ?? null, exp_kinryoku: ex.exp_kinryoku ?? 0, exp_binsoku: ex.exp_binsoku ?? 0,
@@ -433,8 +510,8 @@ export default function SkillsTab() {
             setModalSkill(null);
             if (seqMode) setSeqMode(false);
           }}
-          onNext={seqMode ? () => {
-            if (isDirty(modalSkill.id)) doSave(modalSkill.id);
+          onNext={seqMode ? (changes) => {
+            if (Object.keys(changes).length > 0) doSave(modalSkill.id, changes);
             seqNext();
           } : null}
           seqMode={seqMode}
@@ -443,7 +520,7 @@ export default function SkillsTab() {
         />
       )}
       {compareSkill && <JobCompareModal skill={compareSkill} onClose={() => setCompareSkill(null)} />}
-      {showCopy && <RoleCopyModal jobId={jobId} sData={sData} onClose={() => setShowCopy(false)} onDone={(count) => { setShowCopy(false); flash(`✓ ${count}件コピー完了`); }} />}
+      {showCopy && <RoleCopyModal jobId={jobId} skills={skills} sData={sData} onClose={() => setShowCopy(false)} onDone={(count) => { setShowCopy(false); flash(`✓ ${count}件コピー完了`); }} />}
       <Toast msg={toast} />
     </div>
   );
